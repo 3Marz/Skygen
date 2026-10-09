@@ -1041,6 +1041,7 @@ void genVoronoiDiagram(VoronoiMap *map)
 	}
 }
 
+
 void triangulateVoronoiMap(VoronoiMap *map) {
   if (!map) return;
 
@@ -1077,6 +1078,45 @@ void triangulateVoronoiMap(VoronoiMap *map) {
   lawson_flip_pass(map);
 
   genVoronoiDiagram(map);
+}
+
+void relaxVoronoiMap(VoronoiMap *map, int n) {
+  if (!map) return;
+
+  for (int i = 0; i < n; i++) {
+    for (int s = 0; s < map->n_sites; s++) {
+
+      Vector2 center = (Vector2){ 0.0f, 0.0f };
+      float signdArea = 0.0;
+      for (int j = 0; j < map->vor.poly_n[s]; j++) {
+
+        int poly_len = map->vor.poly_n[s];
+        Vector2 curr_p = map->vor.polys[s][j];
+        Vector2 next_p = map->vor.polys[s][(j + 1) % poly_len];
+
+        float factor = (curr_p.x * next_p.y) - (next_p.x * curr_p.y);
+
+        signdArea += factor;
+        center.x += (curr_p.x + next_p.x) * factor;
+        center.y += (curr_p.y + next_p.y) * factor;
+
+      }
+
+      float area = signdArea / 2.0f;
+
+      if (area == 0.0f) {
+        printf("cell %d has zero area!\n", s);
+        continue;
+      }
+
+      center.x = center.x / (6.0f * area);
+      center.y = center.y / (6.0f * area);
+
+      map->sites[s].pos = center;
+    }
+  }
+  
+  triangulateVoronoiMap(map);
 }
 
 Image genVoronoiImage(VoronoiMap *map) {

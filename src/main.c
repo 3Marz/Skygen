@@ -13,8 +13,9 @@ int main(void)
     InitWindow(screenWidth, screenHeight, "SKYGEN");
 
     // Voronoi Map
-    VoronoiMap *v_map = initVoronoiMap((Vector2) { 1000, 1000 }, 200);
+    VoronoiMap *v_map = initVoronoiMap((Vector2) { 1000, 1000 }, 500);
     triangulateVoronoiMap(v_map);
+    relaxVoronoiMap(v_map, 2);
 
     // Camera setup
     Camera camera = { 0 };
@@ -56,15 +57,7 @@ int main(void)
 
     SetTargetFPS(60);
 
-    for (int i = 0; i < v_map->vor.n_cells; i++) {
-      printf("idx: %d, polys number: %d\n", i, v_map->vor.poly_n[i]);
-      printf("( ");
-      for (int j = 0; j < v_map->vor.poly_n[i]; j++) {
-        printf("polys x: %f, polys y: %f", v_map->vor.polys[i][j].x, v_map->vor.polys[i][j].y);
-      }
-      // DrawCircleV(*v_map->vor.polys[i], 3.0f, YELLOW);
-      printf(" )\n");
-    }
+    int regenerate = 0;
 
     while (!WindowShouldClose())
     {
@@ -72,6 +65,17 @@ int main(void)
         UpdateCamera(&camera, cameraMode);
 
         if (IsKeyPressed(KEY_Z)) { switchCamera = true;  }
+        if (IsKeyPressed(KEY_R)) { relaxVoronoiMap(v_map, 1); regenerate = 1; }
+
+        if (regenerate == 1) {
+          triangulateVoronoiMap(v_map);
+
+          mapImage = genVoronoiImage(v_map);
+          mapTexture = LoadTextureFromImage(mapImage);
+          UnloadImage(mapImage);
+
+          regenerate = 0;
+        }
 
         if (switchCamera)
         {
@@ -103,29 +107,6 @@ int main(void)
             // EndMode3D();
 
             DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 1.0f, WHITE);
-
-            Vector2 center = (Vector2){ 0.0f, 0.0f };
-            float signdArea = 0.0;
-            int s = 50;
-            for (int j = 0; j < v_map->vor.poly_n[s]; j++) {
-
-              int poly_len = v_map->vor.poly_n[s];
-              Vector2 curr_p = v_map->vor.polys[s][j];
-              Vector2 next_p = v_map->vor.polys[s][(j + 1) % poly_len];
-
-              float factor = (curr_p.x * next_p.y) - (next_p.x * curr_p.y);
-
-              signdArea += factor;
-              center.x += (curr_p.x + next_p.x) * factor;
-              center.y += (curr_p.y + next_p.y) * factor;
-
-            }
-
-            float area = signdArea / 2.0f;
-            center.x = center.x / (6.0f * area);
-            center.y = center.y / (6.0f * area);
-
-            DrawCircleV(center, 3.0f, YELLOW);
 
             // DrawFPS(20, 20);
             // for (int i = 0; i < v_map->vor.n_cells; i++) {
