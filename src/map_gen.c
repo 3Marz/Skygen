@@ -599,7 +599,11 @@ VoronoiMap* initVoronoiMap(Vector2 size, int n_sites) {
 
   for (int i = 0; i < n_sites; i++) {
     map->sites[i].pos = (Vector2) { GetRandomValue(0, size.x), GetRandomValue(0, size.y) };
-    map->sites[i].color = (Color) { GetRandomValue(0, 255), GetRandomValue(0, 255), GetRandomValue(0, 255), 255 };
+    if (GetRandomValue(0, 2) == 0) {
+      map->sites[i].color = (Color) { 50, 50, 255, 255 };
+    } else {
+      map->sites[i].color = (Color) { 50, 255, 50, 255 };
+    }
   }
 
   map->tris = NULL;
