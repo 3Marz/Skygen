@@ -1,70 +1,95 @@
 #include <raylib.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 
-typedef struct Edge {
-  int org, dest; // Origin and destination site indices
+/* Capacity of the per-vertex adjacency arrays. Must exceed the largest
+ * Delaunay degree / Voronoi-vertex degree in the map; overflow is counted in
+ * MapData.clamped instead of corrupting memory. */
+#define MAXN 64
 
-  struct Edge *next, *prev; // Next/previous edge on the hull ring (CCW)
-  struct Edge *opposite; // Opposite half-edge (only set for the trivial 2-point case)
+typedef struct HullEdge HullEdge; /* recursion scratch, defined below */
 
-  int idx; // Creation index (debug)
+typedef struct {
+  Vector2 map_size; /* map rectangle in pixels */
+  int n_sites;      /* number of polygon centers to seed */
+  int relax;        /* Lloyd relaxation iterations (0 = none) */
+} Params;
 
+/* A site (polygon center). neigh/edges/corners describe its cell. */
+typedef struct {
+  Vector2 pos;
+  int border, water, ocean, coast, biome;
+  float elevation, moisture;    /* map elevation 0-100 and moisture */
+  int nneigh, neigh[MAXN];      /* adjacent centers  (Delaunay edges)       */
+  int nedges, edges[MAXN];      /* edges bordering this polygon             */
+  int ncorners, corners[MAXN];  /* polygon corners, sorted by angle         */
+} Center;
+
+/* A Voronoi vertex / Delaunay triangle ("blue point").
+ * touches are the centers meeting here, prot the edges leaving this corner and
+ * adj the neighbouring corners. The degree of a Voronoi vertex is unbounded
+ * (border corners, cocircular hubs), so these are MAXN-capped, not [3]. */
+typedef struct {
+  Vector2 pos;
+  int border, water, ocean, coast, river, downslope;
+  float elevation, moisture;
+  int ntouch, touches[MAXN];    /* the centers meeting here                 */
+  int nadj, adj[MAXN];          /* adjacent corners (Voronoi edges)         */
+  int nprot, prot[MAXN];        /* edges leaving this corner                */
+} Corner;
+
+/* One edge knows both graphs: two centers (d0,d1) and two corners (v0,v1) */
+typedef struct {
+  int d0, d1, v0, v1;
+  int river;
+  Vector2 mid;
 } Edge;
 
 typedef struct {
+  int nc, nq, ne;
+  Center *c;
+  Corner *q;
+  Edge *e;
+  float spacing;                /* average distance between centers         */
+  /* polyline (v0 .. v1) of every edge, straight or noisy */
+  Vector2 *pool;
+  int poolN, poolCap;
+  int *pstart, *plen;
 
-  Vector2 pos;
-  Color color;
-
-} Site;
-
-typedef struct {
-
-  int n_cells; // == map->n_sites at build time (one cell per site)
-  Vector2 **polys; // Per-site cell polygon, clipped to the texture rect
-  int *poly_n;
-
-  Vector2 *verts; // Voronoi vertices = triangle circumcenters, index-aligned with map->tris
-  int n_verts; // == map->n_tris
-
-  int *edges; // Flat index pairs into verts: dual of interior Delaunay edges
-  int n_edges;
-
-  Vector2 *border; // Flat point pairs: clipped border segments (dual of hull edges)
-  int n_border;
-
-} VoronoiDiagram;
-
-typedef struct {
-
+  /* Working state, not part of the map graph */
   Vector2 texture_size;
-
-  int n_sites;
-  Site *sites;
-
-  int *tris; // Flat triplets of site indices, always CCW
+  int *tris;                    /* Delaunay triangles (CCW site triples)   */
   int n_tris, cap_tris;
+  int cap_c;                    /* allocated capacity of c[]              */
+  HullEdge **howned;            /* recursion scratch rings, for cleanup   */
+  int n_howned, cap_howned;
+  int clamped;                  /* adjacencies dropped because of MAXN      */
+} MapData;
 
-  Edge **owned; // Every allocated edge, for cleanup
-  int n_owned, cap_owned;
+/* -------------------------------------------------------------------------
+ * Internal hull edges. The recursion walks convex hull rings; the public Edge
+ * above is the output record and carries no links.
+ * ---------------------------------------------------------------------- */
 
-  VoronoiDiagram vor; // Dual diagram + cells, rebuilt by genVoronoiDiagram()
+typedef struct HullEdge {
+  int org, dest; // Origin and destination site indices
+  struct HullEdge *next, *prev; // Next/previous edge on the hull ring (CCW)
+  struct HullEdge *opposite;    // Opposite half-edge (2-point case only)
+  int idx;                      // Creation index (debug)
+} HullEdge;
 
-} VoronoiMap;
-
-// Divide-and-conquer Delaunay triangulation (Lee/Preparata - Guibas/Stolfi style).
-// Sites must be sorted by x (then y). triangulate() handles sites[start, end)
-// and returns its convex hull as a CCW edge ring: *left_e is the hull edge leaving
-// the leftmost site, *right_e the hull edge leaving the rightmost site.
-// Finished triangles accumulate in map->tris.
+/* Divide-and-conquer Delaunay triangulation (Lee/Preparata - Guibas/Stolfi style).
+ * Centers must be sorted by x (then y). triangulate() handles centers[start, end)
+ * and returns the convex hull of that subrange as a CCW edge ring: *left_e is
+ * the hull edge leaving the leftmost site, *right_e the one leaving the
+ * rightmost. Finished triangles accumulate in map->tris. */
 
 static int compare_sites(const void *a_v, const void *b_v)
 {
-
-	Site *a = (Site *) a_v;
-	Site *b = (Site *) b_v;
+	Center *a = (Center *) a_v;
+	Center *b = (Center *) b_v;
 
 	float diff = a->pos.x - b->pos.x;
 
@@ -73,17 +98,12 @@ static int compare_sites(const void *a_v, const void *b_v)
 	}
 
 	return (diff>0) - (diff<0);
-
 }
 
 static double orient2d(Vector2 a, Vector2 b, Vector2 c)
 {
 	return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
-
-// Forward declarations (defined with the post-pass / diagram helpers below).
-static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c);
-static void freeVoronoiDiagram(VoronoiDiagram *d);
 
 static double dist2(Vector2 a, Vector2 b)
 {
@@ -92,7 +112,7 @@ static double dist2(Vector2 a, Vector2 b)
 	return dx * dx + dy * dy;
 }
 
-// > 0 iff d lies strictly inside the circumcircle of CCW triangle (a, b, c).
+/* > 0 iff d lies strictly inside the circumcircle of CCW triangle (a, b, c). */
 static double incircle(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
 {
 	double adx = a.x - d.x, ady = a.y - d.y;
@@ -110,27 +130,39 @@ static double incircle(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
 	return a2 * bcdet + b2 * cadet + c2 * abdet;
 }
 
-static Edge *new_edge(VoronoiMap *map, int org, int dest)
-{
-	if (map->n_owned == map->cap_owned) {
-		map->cap_owned = map->cap_owned ? map->cap_owned * 2 : 64;
-		map->owned = realloc(map->owned, sizeof(Edge *) * (size_t)map->cap_owned);
-	}
+/* Forward declarations (defined with the post-pass / graph helpers below). */
+static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c);
 
-	Edge *e = malloc(sizeof(Edge));
+static HullEdge *new_hull(MapData *map, int org, int dest)
+{
+	if (map->n_howned == map->cap_howned) {
+		map->cap_howned = map->cap_howned ? map->cap_howned * 2 : 64;
+		map->howned = realloc(map->howned, sizeof(HullEdge *) * (size_t)map->cap_howned);
+	}
+	HullEdge *e = malloc(sizeof(HullEdge));
 	e->org = org;
 	e->dest = dest;
 	e->next = e->prev = NULL;
 	e->opposite = NULL;
-	e->idx = map->n_owned;
-	map->owned[map->n_owned++] = e;
+	e->idx = map->n_howned;
+	map->howned[map->n_howned++] = e;
 	return e;
 }
 
-// Store triangle (a, b, c); enforces CCW order, drops degenerate (collinear) ones.
-static void push_tri(VoronoiMap *map, int a, int b, int c)
+/* The hull rings are scratch space for one triangulation run. */
+static void freeHullEdges(MapData *map)
 {
-	double o = orient2d(map->sites[a].pos, map->sites[b].pos, map->sites[c].pos);
+	for (int i = 0; i < map->n_howned; i++) free(map->howned[i]);
+	free(map->howned);
+	map->howned = NULL;
+	map->n_howned = 0;
+	map->cap_howned = 0;
+}
+
+/* Store triangle (a, b, c); enforces CCW order, drops degenerate (collinear) ones. */
+static void push_tri(MapData *map, int a, int b, int c)
+{
+	double o = orient2d(map->c[a].pos, map->c[b].pos, map->c[c].pos);
 	if (fabs(o) < 1e-9) return;
 
 	if (o < 0) {
@@ -150,10 +182,10 @@ static void push_tri(VoronoiMap *map, int a, int b, int c)
 	map->n_tris++;
 }
 
-static int ring_count(Edge *start)
+static int ring_count(HullEdge *start)
 {
 	int n = 0;
-	Edge *e = start;
+	HullEdge *e = start;
 	if (!e) return 0;
 	do {
 		n++;
@@ -163,10 +195,10 @@ static int ring_count(Edge *start)
 	return n;
 }
 
-static int read_ring(Edge *start, int *out, int cap)
+static int read_ring(HullEdge *start, int *out, int cap)
 {
 	int n = 0;
-	Edge *e = start;
+	HullEdge *e = start;
 	if (!e) return 0;
 	do {
 		if (n >= cap) break;
@@ -176,18 +208,18 @@ static int read_ring(Edge *start, int *out, int cap)
 	return n;
 }
 
-// NOTE on collinear hull points: they are deliberately KEPT in the hull rings.
-// The seam bubble steps through them one at a time (emitting degenerate
-// triangles that are skipped), which subdivides the strip instead of emitting
-// giant spanning triangles. Tangent selection picks extreme endpoints among
-// same-slope ties, stranded middles are reinserted by insert_missing_sites(),
-// and T-junctions are split to keep the mesh conforming.
+/* NOTE on collinear hull points: they are deliberately KEPT in the hull rings.
+ * The seam bubble steps through them one at a time (emitting degenerate
+ * triangles that are skipped), which subdivides the strip instead of emitting
+ * giant spanning triangles. Tangent selection picks extreme endpoints among
+ * same-slope ties, stranded middles are reinserted by insert_missing_sites(),
+ * and T-junctions are split to keep the mesh conforming. */
 
-// Lower common tangent of the left hull (h1) and right hull (h2), directed h1 -> h2.
-// Correct selection: among all pairs with every site on the left, the tangent
-// minimizes the slope (steepest downward line that keeps everything above).
-// (Longest-valid is NOT the tangent: it can touch a hull off its lower chain.)
-static void lower_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
+/* Lower common tangent of the left hull (h1) and right hull (h2), directed h1 -> h2.
+ * Correct selection: among all pairs with every site on the left, the tangent
+ * minimizes the slope (steepest downward line that keeps everything above).
+ * (Longest-valid is NOT the tangent: it can touch a hull off its lower chain.) */
+static void lower_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
 {
 	const double EPS = 1e-9;
 	int found = 0;
@@ -196,16 +228,16 @@ static void lower_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 
 	for (int i = 0; i < n1; i++) {
 		for (int j = 0; j < n2; j++) {
-			Vector2 a = map->sites[h1[i]].pos;
-			Vector2 b = map->sites[h2[j]].pos;
+			Vector2 a = map->c[h1[i]].pos;
+			Vector2 b = map->c[h2[j]].pos;
 			double dx = b.x - a.x;
 			if (dx <= EPS) continue; // Strictly separated in x (sorted split)
 			int ok = 1;
 			for (int k = 0; k < n1 && ok; k++) {
-				if (k != i && orient2d(a, b, map->sites[h1[k]].pos) < -EPS) ok = 0;
+				if (k != i && orient2d(a, b, map->c[h1[k]].pos) < -EPS) ok = 0;
 			}
 			for (int k = 0; k < n2 && ok; k++) {
-				if (k != j && orient2d(a, b, map->sites[h2[k]].pos) < -EPS) ok = 0;
+				if (k != j && orient2d(a, b, map->c[h2[k]].pos) < -EPS) ok = 0;
 			}
 			if (!ok) continue;
 			double dy = b.y - a.y;
@@ -228,14 +260,14 @@ static void lower_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 		double best = -1;
 		for (int i = 0; i < n1; i++) {
 			for (int j = 0; j < n2; j++) {
-				Vector2 a = map->sites[h1[i]].pos;
-				Vector2 b = map->sites[h2[j]].pos;
+				Vector2 a = map->c[h1[i]].pos;
+				Vector2 b = map->c[h2[j]].pos;
 				int ok = 1;
 				for (int k = 0; k < n1 && ok; k++) {
-					if (k != i && orient2d(a, b, map->sites[h1[k]].pos) < -EPS) ok = 0;
+					if (k != i && orient2d(a, b, map->c[h1[k]].pos) < -EPS) ok = 0;
 				}
 				for (int k = 0; k < n2 && ok; k++) {
-					if (k != j && orient2d(a, b, map->sites[h2[k]].pos) < -EPS) ok = 0;
+					if (k != j && orient2d(a, b, map->c[h2[k]].pos) < -EPS) ok = 0;
 				}
 				if (ok) {
 					double d = dist2(a, b);
@@ -253,9 +285,9 @@ static void lower_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 	*bj = lj;
 }
 
-// Upper common tangent, directed h2 -> h1 (right-to-left along the top).
-// Mirror image: among all pairs with every site on the left, maximize slope.
-static void upper_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
+/* Upper common tangent, directed h2 -> h1 (right-to-left along the top).
+ * Mirror image: among all pairs with every site on the left, maximize slope. */
+static void upper_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
 {
 	const double EPS = 1e-9;
 	int found = 0;
@@ -264,16 +296,16 @@ static void upper_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 
 	for (int i = 0; i < n1; i++) {
 		for (int j = 0; j < n2; j++) {
-			Vector2 a = map->sites[h2[j]].pos;
-			Vector2 b = map->sites[h1[i]].pos;
+			Vector2 a = map->c[h2[j]].pos;
+			Vector2 b = map->c[h1[i]].pos;
 			double dx = b.x - a.x;
 			if (dx >= -EPS) continue; // Must head strictly westward
 			int ok = 1;
 			for (int k = 0; k < n1 && ok; k++) {
-				if (k != i && orient2d(a, b, map->sites[h1[k]].pos) < -EPS) ok = 0;
+				if (k != i && orient2d(a, b, map->c[h1[k]].pos) < -EPS) ok = 0;
 			}
 			for (int k = 0; k < n2 && ok; k++) {
-				if (k != j && orient2d(a, b, map->sites[h2[k]].pos) < -EPS) ok = 0;
+				if (k != j && orient2d(a, b, map->c[h2[k]].pos) < -EPS) ok = 0;
 			}
 			if (!ok) continue;
 			// Slope of the undirected line: (b.y - a.y) / (b.x - a.x), dx < 0.
@@ -298,14 +330,14 @@ static void upper_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 		double best = -1;
 		for (int i = 0; i < n1; i++) {
 			for (int j = 0; j < n2; j++) {
-				Vector2 a = map->sites[h2[j]].pos;
-				Vector2 b = map->sites[h1[i]].pos;
+				Vector2 a = map->c[h2[j]].pos;
+				Vector2 b = map->c[h1[i]].pos;
 				int ok = 1;
 				for (int k = 0; k < n1 && ok; k++) {
-					if (k != i && orient2d(a, b, map->sites[h1[k]].pos) < -EPS) ok = 0;
+					if (k != i && orient2d(a, b, map->c[h1[k]].pos) < -EPS) ok = 0;
 				}
 				for (int k = 0; k < n2 && ok; k++) {
-					if (k != j && orient2d(a, b, map->sites[h2[k]].pos) < -EPS) ok = 0;
+					if (k != j && orient2d(a, b, map->c[h2[k]].pos) < -EPS) ok = 0;
 				}
 				if (ok) {
 					double d = dist2(a, b);
@@ -323,11 +355,11 @@ static void upper_tangent(VoronoiMap *map, int *h1, int n1, int *h2, int n2, int
 	*bj = lj;
 }
 
-// Merge two adjacent triangulations: stitch the gap between the hulls with the
-// rising-bubble seam (cross triangles from the lower to the upper tangent),
-// then splice the hull rings. Both rings are CCW.
-static void merge_triangulations(VoronoiMap *map, Edge *left_hull, Edge *right_hull,
-                                 Edge **out_l, Edge **out_r)
+/* Merge two adjacent triangulations: stitch the gap between the hulls with the
+ * rising-bubble seam (cross triangles from the lower to the upper tangent),
+ * then splice the hull rings. Both rings are CCW. */
+static void merge_triangulations(MapData *map, HullEdge *left_hull, HullEdge *right_hull,
+                                 HullEdge **out_l, HullEdge **out_r)
 {
 	const double EPS = 1e-9;
 	*out_l = NULL;
@@ -359,15 +391,6 @@ static void merge_triangulations(VoronoiMap *map, Edge *left_hull, Edge *right_h
 	int li, ri, ui, uj;
 	lower_tangent(map, h1, n1, h2, n2, &li, &ri);
 	upper_tangent(map, h1, n1, h2, n2, &ui, &uj);
-
-	if (getenv("TRI_DEBUG")) {
-		fprintf(stderr, "merge n1=%d n2=%d h1=[", n1, n2);
-		for (int k = 0; k < n1; k++) fprintf(stderr, "%d ", h1[k]);
-		fprintf(stderr, "] h2=[");
-		for (int k = 0; k < n2; k++) fprintf(stderr, "%d ", h2[k]);
-		fprintf(stderr, "] lower=(%d,%d) upper=(%d,%d)\n",
-		        h1[li], h2[ri], h1[ui], h2[uj]);
-	}
 
 	// Spliced hull (CCW): bridge li -> ri, around the outer (right) chain of the
 	// right hull to uj, bridge uj -> ui, around the outer (left) chain of the
@@ -452,20 +475,14 @@ static void merge_triangulations(VoronoiMap *map, Edge *left_hull, Edge *right_h
 
 		int hasL = (i + 1 < nL);
 		int hasR = (j + 1 < nR);
-		Vector2 Pl = map->sites[L[i]].pos;
-		Vector2 Pr = map->sites[R[j]].pos;
-		Vector2 Pl2 = hasL ? map->sites[L[i + 1]].pos : Pl;
-		Vector2 Pr2 = hasR ? map->sites[R[j + 1]].pos : Pr;
+		Vector2 Pl = map->c[L[i]].pos;
+		Vector2 Pr = map->c[R[j]].pos;
+		Vector2 Pl2 = hasL ? map->c[L[i + 1]].pos : Pl;
+		Vector2 Pr2 = hasR ? map->c[R[j + 1]].pos : Pr;
 
 		int lok = hasL && (orient2d(Pl, Pr, Pl2) > -EPS);
 		int rok = hasR && (orient2d(Pl, Pr, Pr2) > -EPS);
-		if (!lok && !rok) {
-			if (getenv("TRI_DEBUG")) {
-				fprintf(stderr, "  stall: i=%d/%d j=%d/%d (bridge %d->%d)\n",
-				        i, nL, j, nR, L[i], R[j]);
-			}
-			break; // Should not happen before the lists are exhausted
-		}
+		if (!lok && !rok) break; // Should not happen before the lists are exhausted
 
 		// NOTE: no "delete" skip of candidates here. Advancing one chain
 		// vertex at a time keeps every seam triangle inside the strip, so the
@@ -504,19 +521,20 @@ static void merge_triangulations(VoronoiMap *map, Edge *left_hull, Edge *right_h
 	free(L);
 	free(R);
 
+	// Wrap the splice into a CCW hull ring of hull edges.
 	int leftmost = ring[0], rightmost = ring[0];
 	for (int k = 1; k < m; k++) {
-		Vector2 p = map->sites[ring[k]].pos;
-		Vector2 pl = map->sites[leftmost].pos;
-		Vector2 pr = map->sites[rightmost].pos;
+		Vector2 p = map->c[ring[k]].pos;
+		Vector2 pl = map->c[leftmost].pos;
+		Vector2 pr = map->c[rightmost].pos;
 		if (p.x < pl.x || (p.x == pl.x && p.y < pl.y)) leftmost = ring[k];
 		if (p.x > pr.x || (p.x == pr.x && p.y > pr.y)) rightmost = ring[k];
 	}
 
-	Edge *first = NULL, *prev = NULL;
-	Edge *edge_l = NULL, *edge_r = NULL;
+	HullEdge *first = NULL, *prev = NULL;
+	HullEdge *edge_l = NULL, *edge_r = NULL;
 	for (int k = 0; k < m; k++) {
-		Edge *e = new_edge(map, ring[k], ring[(k + 1) % m]);
+		HullEdge *e = new_hull(map, ring[k], ring[(k + 1) % m]);
 		if (prev) {
 			prev->next = e;
 			e->prev = prev;
@@ -537,7 +555,7 @@ static void merge_triangulations(VoronoiMap *map, Edge *left_hull, Edge *right_h
 	free(ring);
 }
 
-void triangulate(VoronoiMap *map, int start, int end, Edge **left_e, Edge **right_e) {
+void triangulate(MapData *map, int start, int end, HullEdge **left_e, HullEdge **right_e) {
   *left_e = NULL;
   *right_e = NULL;
   int n = end - start;
@@ -545,8 +563,8 @@ void triangulate(VoronoiMap *map, int start, int end, Edge **left_e, Edge **righ
 
   if (n == 2) {
     int i = start, j = start + 1;
-    Edge *e1 = new_edge(map, i, j);
-    Edge *e2 = new_edge(map, j, i);
+    HullEdge *e1 = new_hull(map, i, j);
+    HullEdge *e2 = new_hull(map, j, i);
     e1->opposite = e2;
     e2->opposite = e1;
     e1->next = e2; e2->prev = e1;
@@ -558,30 +576,30 @@ void triangulate(VoronoiMap *map, int start, int end, Edge **left_e, Edge **righ
 
   if (n == 3) {
     int i = start, j = start + 1, k = start + 2;
-    Vector2 A = map->sites[i].pos;
-    Vector2 B = map->sites[j].pos;
-    Vector2 C = map->sites[k].pos;
-    Edge *a, *b, *c;
+    Vector2 A = map->c[i].pos;
+    Vector2 B = map->c[j].pos;
+    Vector2 C = map->c[k].pos;
+    HullEdge *a, *b, *cc;
     if (orient2d(A, B, C) >= 0) {
-      a = new_edge(map, i, j);
-      b = new_edge(map, j, k);
-      c = new_edge(map, k, i);
+      a = new_hull(map, i, j);
+      b = new_hull(map, j, k);
+      cc = new_hull(map, k, i);
     } else {
-      a = new_edge(map, i, k);
-      b = new_edge(map, k, j);
-      c = new_edge(map, j, i);
+      a = new_hull(map, i, k);
+      b = new_hull(map, k, j);
+      cc = new_hull(map, j, i);
     }
     a->next = b; b->prev = a;
-    b->next = c; c->prev = b;
-    c->next = a; a->prev = c;
+    b->next = cc; cc->prev = b;
+    cc->next = a; a->prev = cc;
     push_tri(map, i, j, k); // No-op when the three sites are collinear
-    *left_e = (a->org == i) ? a : ((b->org == i) ? b : c);
-    *right_e = (a->org == k) ? a : ((b->org == k) ? b : c);
+    *left_e = (a->org == i) ? a : ((b->org == i) ? b : cc);
+    *right_e = (a->org == k) ? a : ((b->org == k) ? b : cc);
     return;
   }
 
   int mid = start + n / 2;
-  Edge *ll, *lr, *rl, *rr;
+  HullEdge *ll, *lr, *rl, *rr;
   triangulate(map, start, mid, &ll, &lr);
   triangulate(map, mid, end, &rl, &rr);
   (void)lr;
@@ -589,56 +607,72 @@ void triangulate(VoronoiMap *map, int start, int end, Edge **left_e, Edge **righ
   merge_triangulations(map, ll, rl, left_e, right_e);
 }
 
-VoronoiMap* initVoronoiMap(Vector2 size, int n_sites) {
+MapData *initVoronoiMap(Params p) {
 
-  VoronoiMap *map = malloc(sizeof(VoronoiMap));
-  map->n_sites = n_sites;
-  map->texture_size = size;
+  MapData *map = malloc(sizeof(MapData));
+  map->nc = p.n_sites > 0 ? p.n_sites : 0;
+  map->texture_size = p.map_size;
 
-  map->sites = malloc(sizeof(Site) * (size_t)n_sites);
+  map->cap_c = map->nc > 0 ? map->nc : 1;
+  map->c = calloc((size_t)map->cap_c, sizeof(Center));
 
-  for (int i = 0; i < n_sites; i++) {
-    map->sites[i].pos = (Vector2) { GetRandomValue(0, size.x), GetRandomValue(0, size.y) };
-    if (GetRandomValue(0, 2) == 0) {
-      map->sites[i].color = (Color) { 50, 50, 255, 255 };
-    } else {
-      map->sites[i].color = (Color) { 50, 255, 50, 255 };
-    }
+  for (int i = 0; i < map->nc; i++) {
+    map->c[i].pos = (Vector2) { GetRandomValue(0, (int)p.map_size.x),
+                                GetRandomValue(0, (int)p.map_size.y) };
   }
+
+  map->nq = 0;
+  map->q = NULL;
+  map->ne = 0;
+  map->e = NULL;
+  map->spacing = 0;
+  map->pool = NULL;
+  map->poolN = 0;
+  map->poolCap = 0;
+  map->pstart = NULL;
+  map->plen = NULL;
 
   map->tris = NULL;
   map->n_tris = 0;
   map->cap_tris = 0;
-
-  map->owned = NULL;
-  map->n_owned = 0;
-  map->cap_owned = 0;
-
-  map->vor.n_cells = 0;
-  map->vor.polys = NULL;
-  map->vor.poly_n = NULL;
-  map->vor.verts = NULL;
-  map->vor.n_verts = 0;
-  map->vor.edges = NULL;
-  map->vor.n_edges = 0;
-  map->vor.border = NULL;
-  map->vor.n_border = 0;
+  map->howned = NULL;
+  map->n_howned = 0;
+  map->cap_howned = 0;
+  map->clamped = 0;
 
   return map;
 }
 
-void freeVoronoiMap(VoronoiMap *map) {
+static void freeGraph(MapData *map)
+{
+	free(map->q);
+	free(map->e);
+	free(map->pool);
+	free(map->pstart);
+	free(map->plen);
+	map->nq = 0;
+	map->ne = 0;
+	map->q = NULL;
+	map->e = NULL;
+	map->pool = NULL;
+	map->pstart = NULL;
+	map->plen = NULL;
+	map->poolN = 0;
+	map->poolCap = 0;
+	map->spacing = 0;
+}
+
+void freeVoronoiMap(MapData *map) {
   if (!map) return;
-  for (int i = 0; i < map->n_owned; i++) free(map->owned[i]);
-  free(map->owned);
+  freeGraph(map);
+  freeHullEdges(map);
   free(map->tris);
-  free(map->sites);
-  freeVoronoiDiagram(&map->vor);
+  free(map->c);
   free(map);
 }
 
-// Find a partner triangle sharing the directed edge b -> a (i.e. we hold a -> b).
-static int find_partner(VoronoiMap *map, int ti, int a, int b)
+/* Find a partner triangle sharing the directed edge b -> a (i.e. we hold a -> b). */
+static int find_partner(MapData *map, int ti, int a, int b)
 {
 	for (int j = 0; j < map->n_tris; j++) {
 		if (j == ti) continue;
@@ -652,7 +686,7 @@ static int find_partner(VoronoiMap *map, int ti, int a, int b)
 	return -1;
 }
 
-// Point strictly inside CCW triangle (a, b, c)?
+/* Point strictly inside CCW triangle (a, b, c)? */
 static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
 {
 	const double EPS = 1e-9;
@@ -661,7 +695,7 @@ static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
 	       orient2d(c, a, p) > EPS;
 }
 
-// Point strictly between a and b (collinearity checked by caller)?
+/* Point strictly between a and b (collinearity checked by caller)? */
 static int point_on_segment(Vector2 p, Vector2 a, Vector2 b)
 {
 	const double EPS = 1e-9;
@@ -672,13 +706,13 @@ static int point_on_segment(Vector2 p, Vector2 a, Vector2 b)
 	return t > EPS && t < 1.0 - EPS;
 }
 
-// The seam only walks hull chains, so a sub-hull vertex that ends up strictly
-// inside the merged hull (like a point in the "bay" between the halves) gets
-// no triangle. Insert every such site into its containing triangle.
-static void insert_missing_sites(VoronoiMap *map)
+/* The seam only walks hull chains, so a sub-hull vertex that ends up strictly
+ * inside the merged hull (like a point in the "bay" between the halves) gets
+ * no triangle. Insert every such site into its containing triangle. */
+static void insert_missing_sites(MapData *map)
 {
 	const double EPS = 1e-9;
-	int n = map->n_sites;
+	int n = map->nc;
 	char *used = calloc((size_t)(n > 0 ? n : 1), 1);
 
 	for (int s = 0; s < n; s++) {
@@ -696,15 +730,15 @@ static void insert_missing_sites(VoronoiMap *map)
 			continue;
 		}
 
-		Vector2 p = map->sites[s].pos;
+		Vector2 p = map->c[s].pos;
 		int done = 0;
 		for (int t = 0; t < map->n_tris && !done; t++) {
 			int *tr = &map->tris[3 * t];
-			Vector2 a = map->sites[tr[0]].pos;
-			Vector2 b = map->sites[tr[1]].pos;
-			Vector2 c = map->sites[tr[2]].pos;
+			Vector2 a = map->c[tr[0]].pos;
+			Vector2 b = map->c[tr[1]].pos;
+			Vector2 cc = map->c[tr[2]].pos;
 
-			if (point_in_tri(p, a, b, c)) {
+			if (point_in_tri(p, a, b, cc)) {
 				int ia = tr[0], ib = tr[1], ic = tr[2];
 				tr[0] = ia; tr[1] = ib; tr[2] = s;
 				push_tri(map, ib, ic, s);
@@ -714,8 +748,8 @@ static void insert_missing_sites(VoronoiMap *map)
 				// On-edge split: p collinear on one triangle edge, strictly between.
 				int ea[3] = { tr[0], tr[1], tr[2] };
 				for (int e = 0; e < 3 && !done; e++) {
-					Vector2 u = map->sites[ea[e]].pos;
-					Vector2 v = map->sites[ea[(e + 1) % 3]].pos;
+					Vector2 u = map->c[ea[e]].pos;
+					Vector2 v = map->c[ea[(e + 1) % 3]].pos;
 					if (fabs(orient2d(u, v, p)) < EPS && point_on_segment(p, u, v)) {
 						int w = ea[(e + 2) % 3];
 						tr[0] = ea[e]; tr[1] = s; tr[2] = w;
@@ -749,19 +783,18 @@ static void insert_missing_sites(VoronoiMap *map)
 	// triangles. T-junctions break the simplicial-complex premise that
 	// Delaunay's theorem and Lawson flips rely on: the site sits strictly
 	// inside a circumcircle across an unflippable "edge", freezing violations
-	// in place. Iterate to fixpoint (splits only add s as a vertex, so each
-	// edge is split at most once per site; bounded).
+	// in place. Iterate to fixpoint.
 	for (int pass = 0; pass < n + 2; pass++) {
 		int split_any = 0;
 		for (int s = 0; s < n; s++) {
-			Vector2 p = map->sites[s].pos;
+			Vector2 p = map->c[s].pos;
 			for (int t = 0; t < map->n_tris; t++) {
 				int *tr = &map->tris[3 * t];
 				if (tr[0] == s || tr[1] == s || tr[2] == s) continue;
 				int ea[3] = { tr[0], tr[1], tr[2] };
 				for (int e = 0; e < 3; e++) {
-					Vector2 u = map->sites[ea[e]].pos;
-					Vector2 v = map->sites[ea[(e + 1) % 3]].pos;
+					Vector2 u = map->c[ea[e]].pos;
+					Vector2 v = map->c[ea[(e + 1) % 3]].pos;
 					if (fabs(orient2d(u, v, p)) < EPS && point_on_segment(p, u, v)) {
 						int w = ea[(e + 2) % 3];
 						tr[0] = ea[e]; tr[1] = s; tr[2] = w;
@@ -788,13 +821,13 @@ static void insert_missing_sites(VoronoiMap *map)
 	}
 }
 
-// Lawson flip pass: repeatedly flip non-Delaunay interior diagonals until the
-// triangulation is Delaunay. Terminates; the guard is belt and braces.
-static void lawson_flip_pass(VoronoiMap *map)
+/* Lawson flip pass: repeatedly flip non-Delaunay interior diagonals until the
+ * triangulation is Delaunay. A full sweep is done before rescanning; restarting
+ * the O(T^2) partner scan after every flip made the pass cubic. */
+static void lawson_flip_pass(MapData *map)
 {
 	const double EPS = 1e-9;
 	int guard = 0;
-	int flips = 0;
 	int changed = 1;
 	while (changed && guard++ < 100000) {
 		changed = 0;
@@ -810,10 +843,10 @@ static void lawson_flip_pass(VoronoiMap *map)
 					if (u[k] != a && u[k] != b) q = u[k];
 				}
 				if (q < 0) continue;
-				Vector2 A = map->sites[a].pos;
-				Vector2 B = map->sites[b].pos;
-				Vector2 P = map->sites[p].pos;
-				Vector2 Q = map->sites[q].pos;
+				Vector2 A = map->c[a].pos;
+				Vector2 B = map->c[b].pos;
+				Vector2 P = map->c[p].pos;
+				Vector2 Q = map->c[q].pos;
 				if (incircle(A, B, P, Q) > EPS) {
 					// Quad b -> p -> a -> q; flip diagonal (a,b) to (p,q), but
 					// only when the quad is strictly convex (all four left
@@ -823,18 +856,18 @@ static void lawson_flip_pass(VoronoiMap *map)
 						t[0] = b; t[1] = p; t[2] = q;
 						u[0] = p; u[1] = a; u[2] = q;
 						changed = 1;
-						flips++;
 					}
 				}
 			}
 		}
 	}
-	if (getenv("TRI_DEBUG")) {
-		fprintf(stderr, "flip pass: %d flips, %d tris\n", flips, map->n_tris);
-	}
 }
 
-// Circumcenter of a non-degenerate triangle (all stored tris qualify).
+/* -------------------------------------------------------------------------
+ * Voronoi graph
+ * ---------------------------------------------------------------------- */
+
+/* Circumcenter of a non-degenerate triangle (all stored tris qualify). */
 static Vector2 circumcenter(Vector2 a, Vector2 b, Vector2 c)
 {
 	double d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
@@ -847,35 +880,7 @@ static Vector2 circumcenter(Vector2 a, Vector2 b, Vector2 c)
 	return o;
 }
 
-// Clip convex(?) polygon against the half-plane dot(p - mid, nrm) <= 0.
-// Returns the vertex count of out (ping-pong buffers, cap >= nin + 1).
-static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vector2 nrm)
-{
-	const double EPS = 1e-9;
-	int nout = 0;
-	for (int i = 0; i < nin; i++) {
-		Vector2 cur = in[i], nxt = in[(i + 1) % nin];
-		double dc = (cur.x - mid.x) * nrm.x + (cur.y - mid.y) * nrm.y;
-		double dn = (nxt.x - mid.x) * nrm.x + (nxt.y - mid.y) * nrm.y;
-		int inC = dc <= EPS, inN = dn <= EPS;
-		if (inC && inN) {
-			out[nout++] = nxt;
-		} else if (inC && !inN) {
-			double t = dc / (dc - dn);
-			out[nout++] = (Vector2){ (float)(cur.x + (nxt.x - cur.x) * t),
-			                         (float)(cur.y + (nxt.y - cur.y) * t) };
-		} else if (!inC && inN) {
-			double t = dc / (dc - dn);
-			out[nout++] = (Vector2){ (float)(cur.x + (nxt.x - cur.x) * t),
-			                         (float)(cur.y + (nxt.y - cur.y) * t) };
-			out[nout++] = nxt;
-		}
-	}
-	return nout;
-}
-
-// Clip segment p0-p1 to [0,W]x[0,H] (Liang-Barsky). Returns 1 if any part is
-// visible, writing the clipped endpoints.
+/* Clip segment p0-p1 to [0,W]x[0,H] (Liang-Barsky). */
 static int clip_seg_rect(Vector2 p0, Vector2 p1, float W, float H, Vector2 *q0, Vector2 *q1)
 {
 	double dx = p1.x - p0.x, dy = p1.y - p0.y;
@@ -901,7 +906,441 @@ static int clip_seg_rect(Vector2 p0, Vector2 p1, float W, float H, Vector2 *q0, 
 	return 1;
 }
 
-// Even-odd scanline polygon fill.
+/* Append v to a capped unique list. Returns 1 when added, 0 when already
+ * present; on overflow it counts the drop in map->clamped and returns 0. */
+static int add_unique(MapData *map, int *arr, int *n, int v)
+{
+	for (int k = 0; k < *n; k++) {
+		if (arr[k] == v) return 0;
+	}
+	if (*n >= MAXN) {
+		map->clamped++;
+		return 0;
+	}
+	arr[(*n)++] = v;
+	return 1;
+}
+
+static void pool_reserve(MapData *map, int need)
+{
+	if (need <= map->poolCap) return;
+	int cap = map->poolCap ? map->poolCap : 128;
+	while (cap < need) cap *= 2;
+	map->pool = realloc(map->pool, sizeof(Vector2) * (size_t)cap);
+	map->poolCap = cap;
+}
+
+static void push_edge(MapData *map, int d0, int d1, int v0, int v1)
+{
+	float W = map->texture_size.x, H = map->texture_size.y;
+
+	map->e = realloc(map->e, sizeof(Edge) * (size_t)(map->ne + 1));
+	map->pstart = realloc(map->pstart, sizeof(int) * (size_t)(map->ne + 1));
+	map->plen = realloc(map->plen, sizeof(int) * (size_t)(map->ne + 1));
+
+	int i = map->ne;
+	Edge *e = &map->e[i];
+	e->d0 = d0;
+	e->d1 = d1;
+	e->v0 = v0;
+	e->v1 = v1;
+	e->river = 0;
+
+	// Geometry is straight for now: the polyline is the segment clipped to the
+	// map rect. A future noise pass can emit more points here.
+	Vector2 a = map->q[v0].pos, b = map->q[v1].pos;
+	Vector2 c0, c1;
+	if (clip_seg_rect(a, b, W, H, &c0, &c1)) {
+		map->pstart[i] = map->poolN;
+		map->plen[i] = 2;
+		pool_reserve(map, map->poolN + 2);
+		map->pool[map->poolN++] = c0;
+		map->pool[map->poolN++] = c1;
+		e->mid = (Vector2){ (c0.x + c1.x) / 2.0f, (c0.y + c1.y) / 2.0f };
+	} else {
+		map->pstart[i] = map->poolN;
+		map->plen[i] = 0; // dual edge lies entirely outside the map
+		e->mid = (Vector2){ (a.x + b.x) / 2.0f, (a.y + b.y) / 2.0f };
+	}
+	map->ne++;
+}
+
+/* Build the Voronoi graph from the Delaunay triangulation:
+ *   corner per triangle (circumcenter, touching its 3 centers),
+ *   one Edge per Delaunay edge, carrying both centers and both Voronoi corners,
+ *   a synthetic border corner where a hull edge's dual ray meets the map rect.
+ * Corner indices match triangle indices, so corner t belongs to triangle t. */
+static void buildVoronoiGraph(MapData *map)
+{
+	int n = map->nc;
+	float W = map->texture_size.x, H = map->texture_size.y;
+
+	freeGraph(map);
+
+	for (int i = 0; i < n; i++) {
+		Center *c = &map->c[i];
+		c->nneigh = 0;
+		c->nedges = 0;
+		c->ncorners = 0;
+		c->border = (c->pos.x <= 0.0f || c->pos.y <= 0.0f ||
+		             c->pos.x >= W || c->pos.y >= H) ? 1 : 0;
+	}
+
+	// Corners: one per triangle.
+	int qcap = map->n_tris > 0 ? map->n_tris : 1;
+	map->q = calloc((size_t)(qcap + 3 * (map->n_tris > 0 ? map->n_tris : 1)), sizeof(Corner));
+	map->nq = 0;
+	for (int t = 0; t < map->n_tris; t++) {
+		int *tr = &map->tris[3 * t];
+		map->q[t].pos = circumcenter(map->c[tr[0]].pos, map->c[tr[1]].pos,
+		                             map->c[tr[2]].pos);
+		map->q[t].ntouch = 3;
+		map->q[t].touches[0] = tr[0];
+		map->q[t].touches[1] = tr[1];
+		map->q[t].touches[2] = tr[2];
+		map->q[t].border = (map->q[t].pos.x <= 0.0f || map->q[t].pos.y <= 0.0f ||
+		                    map->q[t].pos.x >= W || map->q[t].pos.y >= H) ? 1 : 0;
+	}
+	map->nq = map->n_tris;
+
+	// Edges: one per Delaunay edge, interior duals plus hull rays.
+	for (int t = 0; t < map->n_tris; t++) {
+		int *tr = &map->tris[3 * t];
+		for (int e = 0; e < 3; e++) {
+			int a = tr[e], b = tr[(e + 1) % 3];
+			int j = find_partner(map, t, a, b);
+			if (j > t) {
+				push_edge(map, a, b, t, j); // dual segment between two corners
+			} else if (j < 0) {
+				// Hull edge: the dual is a ray from this corner outwards.
+				Vector2 A = map->c[a].pos, B = map->c[b].pos;
+				double dx = B.x - A.x, dy = B.y - A.y;
+				double len = sqrt(dx * dx + dy * dy);
+				if (len < 1e-12) continue;
+				// Right of a CCW hull edge points away from the interior.
+				Vector2 dir = { (float)(dy / len), (float)(-dx / len) };
+				Vector2 O = map->q[t].pos;
+				Vector2 far = { (float)(O.x + dir.x * (W + H) * 2),
+				                 (float)(O.y + dir.y * (W + H) * 2) };
+				Vector2 c0, c1;
+				if (!clip_seg_rect(O, far, W, H, &c0, &c1)) continue;
+
+				int v = map->nq++;
+				map->q[v].pos = c1; // where the ray leaves the map
+				map->q[v].ntouch = 2;
+				map->q[v].touches[0] = a;
+				map->q[v].touches[1] = b;
+				map->q[v].border = 1;
+				push_edge(map, a, b, t, v);
+			}
+		}
+	}
+
+	// Cross-links: corner prot/adj, center edges/neigh/corners.
+	for (int i = 0; i < map->ne; i++) {
+		Edge *e = &map->e[i];
+		int vs[2] = { e->v0, e->v1 };
+		int ds[2] = { e->d0, e->d1 };
+		for (int k = 0; k < 2; k++) {
+			int v = vs[k];
+			add_unique(map, map->q[v].prot, &map->q[v].nprot, i);
+			int other = vs[1 - k];
+			add_unique(map, map->q[v].adj, &map->q[v].nadj, other);
+		}
+		for (int k = 0; k < 2; k++) {
+			int d = ds[k];
+			int other = ds[1 - k];
+			add_unique(map, map->c[d].edges, &map->c[d].nedges, i);
+			add_unique(map, map->c[d].neigh, &map->c[d].nneigh, other);
+			add_unique(map, map->c[d].corners, &map->c[d].ncorners, e->v0);
+			add_unique(map, map->c[d].corners, &map->c[d].ncorners, e->v1);
+		}
+	}
+
+	// Corners sorted by angle around their center, so they trace the cell.
+	for (int d = 0; d < n; d++) {
+		Center *c = &map->c[d];
+		for (int k = 1; k < c->ncorners; k++) {
+			int v = c->corners[k];
+			double av = atan2((double)map->q[v].pos.y - c->pos.y,
+			                  (double)map->q[v].pos.x - c->pos.x);
+			int j = k - 1;
+			while (j >= 0) {
+				int w = c->corners[j];
+				double aw = atan2((double)map->q[w].pos.y - c->pos.y,
+				                   (double)map->q[w].pos.x - c->pos.x);
+				if (aw <= av) break;
+				c->corners[j + 1] = w;
+				j--;
+			}
+			c->corners[j + 1] = v;
+		}
+	}
+
+	// Average distance between neighboring centers.
+	if (map->ne > 0) {
+		double sum = 0;
+		for (int i = 0; i < map->ne; i++) {
+			sum += sqrt(dist2(map->c[map->e[i].d0].pos, map->c[map->e[i].d1].pos));
+		}
+		map->spacing = (float)(sum / map->ne);
+	}
+}
+
+/* Triangulate the current centers and rebuild the whole Voronoi graph. */
+static void triangulateMap(MapData *map) {
+  if (!map) return;
+
+  freeHullEdges(map); // scratch from any previous run
+
+  qsort(map->c, (size_t)map->nc, sizeof(Center), compare_sites);
+
+  // Dedup: equal coordinates would break the merge (zero-length hull edges).
+  int w = 0;
+  for (int r = 0; r < map->nc; r++) {
+    if (w > 0 &&
+        map->c[r].pos.x == map->c[w - 1].pos.x &&
+        map->c[r].pos.y == map->c[w - 1].pos.y) {
+      continue;
+    }
+    if (w != r) map->c[w] = map->c[r];
+    w++;
+  }
+  map->nc = w;
+
+  // Reset previous results so the call is repeatable.
+  map->n_tris = 0;
+  map->clamped = 0;
+  if (map->nc < 2) {
+    buildVoronoiGraph(map); // Still valid: 0-1 sites give trivial cells
+    return;
+  }
+
+  HullEdge *left_e, *right_e;
+  triangulate(map, 0, map->nc, &left_e, &right_e);
+
+  // Repair: the D&C seam can strand sub-hull vertices that end up strictly
+  // inside the merged hull; insert them, split T-junctions for conformity,
+  // then flip back to Delaunay.
+  insert_missing_sites(map);
+  lawson_flip_pass(map);
+
+  buildVoronoiGraph(map);
+}
+
+/* Clip polygon against the half-plane dot(p - mid, nrm) <= 0. */
+static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vector2 nrm)
+{
+	const double EPS = 1e-9;
+	int nout = 0;
+	for (int i = 0; i < nin; i++) {
+		Vector2 cur = in[i], nxt = in[(i + 1) % nin];
+		double dc = (cur.x - mid.x) * nrm.x + (cur.y - mid.y) * nrm.y;
+		double dn = (nxt.x - mid.x) * nrm.x + (nxt.y - mid.y) * nrm.y;
+		int inC = dc <= EPS, inN = dn <= EPS;
+		if (inC && inN) {
+			out[nout++] = nxt;
+		} else if (inC != inN) {
+			double t = dc / (dc - dn);
+			out[nout++] = (Vector2){ (float)(cur.x + (nxt.x - cur.x) * t),
+			                         (float)(cur.y + (nxt.y - cur.y) * t) };
+			if (!inC) out[nout++] = nxt;
+		}
+	}
+	return nout;
+}
+
+int getClosestCenterIndex(MapData *map, Vector2 p) {
+  double minDist = map->texture_size.x;
+  int minIndex = -1;
+  for (int i = 0; i < map->nc; i++) {
+    double dist = dist2(map->c[i].pos, p);
+    if (dist < minDist) {
+      minDist = dist;
+      minIndex = i;
+    }
+  }
+  return minIndex;
+}
+
+/* Point inside a center's (unclipped) cell? The Delaunay neighbors define it. */
+static int point_in_cell(MapData *map, int ci, Vector2 p)
+{
+	Center *c = &map->c[ci];
+	double dc = dist2(c->pos, p);
+	double tol = dc * 1e-6 + 1e-3;
+	for (int k = 0; k < c->nneigh; k++) {
+		if (dist2(map->c[c->neigh[k]].pos, p) < dc - tol) return 0;
+	}
+	return 1;
+}
+
+/* Convex hull (monotone chain), CCW. Returns the vertex count in out. */
+static int convex_hull(Vector2 *pts, int n, Vector2 *out, int cap)
+{
+	if (n <= 1) return 0;
+	Vector2 *s = malloc(sizeof(Vector2) * (size_t)n);
+	memcpy(s, pts, sizeof(Vector2) * (size_t)n);
+	for (int i = 1; i < n; i++) { // insertion sort by (x, y)
+		Vector2 v = s[i];
+		int j = i - 1;
+		while (j >= 0 && (s[j].x > v.x || (s[j].x == v.x && s[j].y > v.y))) {
+			s[j + 1] = s[j];
+			j--;
+		}
+		s[j + 1] = v;
+	}
+	// drop duplicates
+	int u = 0;
+	for (int i = 0; i < n; i++) {
+		if (u == 0 || dist2(s[u - 1], s[i]) > 1e-8) s[u++] = s[i];
+	}
+	n = u;
+	if (n <= 2) {
+		for (int i = 0; i < n && i < cap; i++) out[i] = s[i];
+		free(s);
+		return n;
+	}
+
+	Vector2 *h = malloc(sizeof(Vector2) * (size_t)(2 * n));
+	int m = 0;
+	for (int pass = 0; pass < 2; pass++) {
+		int start = m;
+		for (int k = 0; k < n; k++) {
+			int i = pass ? n - 1 - k : k;
+			while (m - start >= 2 && orient2d(h[m - 2], h[m - 1], s[i]) <= 0) m--;
+			h[m++] = s[i];
+		}
+		m--; // last point of this pass is the first of the next
+	}
+	free(s);
+	if (m > cap) m = cap;
+	for (int i = 0; i < m; i++) out[i] = h[i];
+	free(h);
+	return m < 3 ? 0 : m;
+}
+
+/* Cell polygon of a center: convex hull of the endpoints of its edges' clipped
+ * polylines plus whichever rectangle corners actually fall inside the cell.
+ * Every vertex of the clipped cell is either a Voronoi vertex (a polyline
+ * endpoint), a bisector crossing the rectangle border (also an endpoint), or a
+ * rectangle corner inside the cell; hulling those gives the exact polygon and
+ * drops the endpoints that only lie along a straight side.
+ * Needs room for about 2*nc points in out. */
+static int cell_polygon(MapData *map, int ci, Vector2 *out, int cap)
+{
+	Center *c = &map->c[ci];
+	float W = map->texture_size.x, H = map->texture_size.y;
+	int n = 0;
+	Vector2 corners[4] = { { 0, 0 }, { W, 0 }, { W, H }, { 0, H } };
+
+	if (c->nedges == 0 && map->nc > 1) {
+		// No triangulation to lean on (one or two centers): clip the rectangle
+		// against every other center's bisector directly.
+		Vector2 *a = malloc(sizeof(Vector2) * 4);
+		Vector2 *b = malloc(sizeof(Vector2) * (size_t)(map->nc + 4));
+		int nin = 4;
+		for (int k = 0; k < 4; k++) a[k] = corners[k];
+		Vector2 *inB = a, *outB = b;
+		for (int o = 0; o < map->nc && nin >= 3; o++) {
+			if (o == ci) continue;
+			Vector2 op = map->c[o].pos;
+			Vector2 mid = { (c->pos.x + op.x) / 2.0f, (c->pos.y + op.y) / 2.0f };
+			Vector2 nrm = { op.x - c->pos.x, op.y - c->pos.y };
+			nin = clip_halfplane(inB, nin, outB, mid, nrm);
+			Vector2 *tmp = inB;
+			inB = outB;
+			outB = tmp;
+		}
+		n = nin > cap ? cap : nin;
+		for (int k = 0; k < n; k++) out[k] = inB[k];
+		free(a);
+		free(b);
+		return n < 3 ? 0 : n;
+	}
+
+	for (int k = 0; k < c->nedges && n < cap; k++) {
+		int ei = c->edges[k];
+		int s = map->pstart[ei], len = map->plen[ei];
+		for (int j = 0; j < len && n < cap; j++) out[n++] = map->pool[s + j];
+	}
+	for (int k = 0; k < 4 && n < cap; k++) {
+		if (point_in_cell(map, ci, corners[k])) out[n++] = corners[k];
+	}
+
+	return convex_hull(out, n, out, cap);
+}
+
+/* One Lloyd step: move every center to the centroid of its cell, then rebuild.
+ * Evenly spreads the centers, which is what makes the cells map well. */
+static void relaxOnce(MapData *map)
+{
+	int n = map->nc;
+	if (n <= 0) return;
+	int cap = 2 * n + 8;
+	Vector2 *buf = malloc(sizeof(Vector2) * (size_t)cap);
+	for (int i = 0; i < n; i++) {
+		int m = cell_polygon(map, i, buf, cap);
+		if (m < 3) continue; // cell not visible in the map rect, keep it put
+		double sx = 0, sy = 0;
+		for (int k = 0; k < m; k++) {
+			sx += buf[k].x;
+			sy += buf[k].y;
+		}
+		map->c[i].pos = (Vector2){ (float)(sx / m), (float)(sy / m) };
+	}
+	free(buf);
+	triangulateMap(map);
+}
+
+void relaxVoronoiMap(MapData *map, int iterations) {
+  for (int i = 0; i < iterations; i++) relaxOnce(map);
+}
+
+// Make Cell type either water, land, ocean
+void genHightmap(MapData *map) {
+
+  for (int i = 0; i < map->nc; i++) {
+    map->c[i].elevation = 0; // Base height (ocean)
+  }
+
+  // Add hill
+  int n_hill = 2;
+  for (int i = 0; i < n_hill; i++) {
+    int x = GetRandomValue(0, map->texture_size.x);
+    int y = GetRandomValue(0, map->texture_size.y);
+    int center = getClosestCenterIndex(map, (Vector2){x, y});
+    if (center < 0) continue;
+    map->c[center].elevation = 100;
+  }
+
+}
+
+/* Reseed the centers and rebuild the map, optionally relaxing afterwards. */
+void generateVoronoiMap(MapData *map, Params p) {
+  if (!map) return;
+
+  map->texture_size = p.map_size;
+
+  if (p.n_sites > map->cap_c) {
+    map->c = realloc(map->c, sizeof(Center) * (size_t)p.n_sites);
+    memset(map->c + map->cap_c, 0, sizeof(Center) * (size_t)(p.n_sites - map->cap_c));
+    map->cap_c = p.n_sites;
+  }
+  map->nc = p.n_sites > 0 ? p.n_sites : 0;
+
+  for (int i = 0; i < map->nc; i++) {
+    map->c[i].pos = (Vector2) { GetRandomValue(0, (int)p.map_size.x),
+                                GetRandomValue(0, (int)p.map_size.y) };
+  }
+
+  triangulateMap(map);
+  if (p.relax > 0) relaxVoronoiMap(map, p.relax);
+
+  genHightmap(map);
+}
+
+/* Even-odd scanline polygon fill. */
 static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
 {
 	if (n < 3) return;
@@ -931,241 +1370,39 @@ static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
 	}
 }
 
-static void freeVoronoiDiagram(VoronoiDiagram *d)
-{
-	if (!d) return;
-	if (d->polys) {
-		for (int i = 0; i < d->n_cells; i++) free(d->polys[i]);
-		free(d->polys);
-	}
-	free(d->poly_n);
-	free(d->verts);
-	free(d->edges);
-	free(d->border);
-	d->n_cells = 0;
-	d->polys = NULL;
-	d->poly_n = NULL;
-	d->verts = NULL;
-	d->n_verts = 0;
-	d->edges = NULL;
-	d->n_edges = 0;
-	d->border = NULL;
-	d->n_border = 0;
-}
-
-// Build the Voronoi dual of the Delaunay triangulation plus exact cell
-// polygons: cell(s) = texture rect clipped by every bisector half-plane
-// keeping the side of s. Robust for all degeneracies (1-2 sites, collinear,
-// cocircular); needs no triangulation topology for the cells.
-void genVoronoiDiagram(VoronoiMap *map)
-{
-	if (!map) return;
-	freeVoronoiDiagram(&map->vor);
-	VoronoiDiagram *vd = &map->vor;
-
-	float W = map->texture_size.x, H = map->texture_size.y;
-	int n = map->n_sites;
-
-	// Cells via half-plane intersection (Sutherland-Hodgman per bisector).
-	vd->n_cells = n;
-	if (n > 0) {
-		vd->polys = malloc(sizeof(Vector2 *) * (size_t)n);
-		vd->poly_n = malloc(sizeof(int) * (size_t)n);
-		int cap = n + 8;
-		Vector2 *bufA = malloc(sizeof(Vector2) * (size_t)cap);
-		Vector2 *bufB = malloc(sizeof(Vector2) * (size_t)cap);
-		for (int s = 0; s < n; s++) {
-			Vector2 *inB = bufA, *outB = bufB;
-			int nin = 4;
-			inB[0] = (Vector2){ 0, 0 };
-			inB[1] = (Vector2){ W, 0 };
-			inB[2] = (Vector2){ W, H };
-			inB[3] = (Vector2){ 0, H };
-			Vector2 sp = map->sites[s].pos;
-			for (int o = 0; o < n && nin >= 3; o++) {
-				if (o == s) continue;
-				Vector2 op = map->sites[o].pos;
-				Vector2 mid = { (sp.x + op.x) / 2.0f, (sp.y + op.y) / 2.0f };
-				Vector2 nrm = { op.x - sp.x, op.y - sp.y };
-				nin = clip_halfplane(inB, nin, outB, mid, nrm);
-				Vector2 *tmp = inB;
-				inB = outB;
-				outB = tmp;
-			}
-			vd->poly_n[s] = nin;
-			vd->polys[s] = malloc(sizeof(Vector2) * (size_t)(nin > 0 ? nin : 1));
-			for (int k = 0; k < nin; k++) vd->polys[s][k] = inB[k];
-		}
-		free(bufA);
-		free(bufB);
-	}
-
-	// Dual vertices: circumcenters, index-aligned with map->tris.
-	vd->n_verts = map->n_tris;
-	if (map->n_tris > 0) {
-		vd->verts = malloc(sizeof(Vector2) * (size_t)map->n_tris);
-		for (int t = 0; t < map->n_tris; t++) {
-			vd->verts[t] = circumcenter(map->sites[map->tris[3 * t]].pos,
-			                            map->sites[map->tris[3 * t + 1]].pos,
-			                            map->sites[map->tris[3 * t + 2]].pos);
-		}
-	}
-
-	// Dual edges (interior Delaunay edges) + clipped border rays (hull edges).
-	for (int t = 0; t < map->n_tris; t++) {
-		int *tr = &map->tris[3 * t];
-		for (int e = 0; e < 3; e++) {
-			int a = tr[e], b = tr[(e + 1) % 3];
-			int j = find_partner(map, t, a, b);
-			if (j < 0) {
-				// Hull edge: ray from the circumcenter outward, clipped to rect.
-				Vector2 A = map->sites[a].pos, B = map->sites[b].pos;
-				double dx = B.x - A.x, dy = B.y - A.y;
-				double len = sqrt(dx * dx + dy * dy);
-				if (len < 1e-12) continue;
-				// Right of CCW hull edge = outward (triangle interior is left).
-				Vector2 dir = { (float)(dy / len), (float)(-dx / len) };
-				Vector2 O = vd->verts[t];
-				Vector2 F = { (float)(O.x + dir.x * (W + H) * 2),
-				              (float)(O.y + dir.y * (W + H) * 2) };
-				Vector2 q0, q1;
-				if (clip_seg_rect(O, F, W, H, &q0, &q1)) {
-					vd->border = realloc(vd->border, sizeof(Vector2) * (size_t)(2 * (vd->n_border + 1)));
-					vd->border[2 * vd->n_border] = q0;
-					vd->border[2 * vd->n_border + 1] = q1;
-					vd->n_border++;
-				}
-			} else if (j > t) {
-				vd->edges = realloc(vd->edges, sizeof(int) * (size_t)(2 * (vd->n_edges + 1)));
-				vd->edges[2 * vd->n_edges] = t;
-				vd->edges[2 * vd->n_edges + 1] = j;
-				vd->n_edges++;
-			}
-		}
-	}
-}
-
-
-void triangulateVoronoiMap(VoronoiMap *map) {
-  if (!map) return;
-
-  qsort(map->sites, (size_t)map->n_sites, sizeof(Site), compare_sites);
-
-  // Dedup: equal coordinates would break the merge (zero-length hull edges).
-  int w = 0;
-  for (int r = 0; r < map->n_sites; r++) {
-    if (w > 0 &&
-        map->sites[r].pos.x == map->sites[w - 1].pos.x &&
-        map->sites[r].pos.y == map->sites[w - 1].pos.y) {
-      continue;
-    }
-    map->sites[w++] = map->sites[r];
-  }
-  map->n_sites = w;
-
-  // Reset previous results so the call is repeatable.
-  for (int i = 0; i < map->n_owned; i++) free(map->owned[i]);
-  map->n_owned = 0;
-  map->n_tris = 0;
-  if (map->n_sites < 2) {
-    genVoronoiDiagram(map); // Still valid: 0-1 sites give trivial cells
-    return;
-  }
-
-  Edge *left_e, *right_e;
-  triangulate(map, 0, map->n_sites, &left_e, &right_e);
-
-  // Repair: the D&C seam can strand sub-hull vertices that end up strictly
-  // inside the merged hull; insert them, split T-junctions for conformity,
-  // then flip back to Delaunay.
-  insert_missing_sites(map);
-  lawson_flip_pass(map);
-
-  genVoronoiDiagram(map);
-}
-
-void relaxVoronoiMap(VoronoiMap *map, int n) {
-  if (!map) return;
-
-  for (int i = 0; i < n; i++) {
-    for (int s = 0; s < map->n_sites; s++) {
-
-      Vector2 center = (Vector2){ 0.0f, 0.0f };
-      float signdArea = 0.0;
-      for (int j = 0; j < map->vor.poly_n[s]; j++) {
-
-        int poly_len = map->vor.poly_n[s];
-        Vector2 curr_p = map->vor.polys[s][j];
-        Vector2 next_p = map->vor.polys[s][(j + 1) % poly_len];
-
-        float factor = (curr_p.x * next_p.y) - (next_p.x * curr_p.y);
-
-        signdArea += factor;
-        center.x += (curr_p.x + next_p.x) * factor;
-        center.y += (curr_p.y + next_p.y) * factor;
-
-      }
-
-      float area = signdArea / 2.0f;
-
-      if (area == 0.0f) {
-        printf("cell %d has zero area!\n", s);
-        continue;
-      }
-
-      center.x = center.x / (6.0f * area);
-      center.y = center.y / (6.0f * area);
-
-      map->sites[s].pos = center;
-    }
-  }
-  
-  triangulateVoronoiMap(map);
-}
-
-Image genVoronoiImage(VoronoiMap *map) {
+Image genVoronoiImage(MapData *map) {
   Image image = GenImageColor((int)map->texture_size.x, (int)map->texture_size.y, WHITE);
 
-  VoronoiDiagram *vd = &map->vor;
-  if (vd->n_cells == map->n_sites && vd->n_cells > 0) {
-    // Cell fills (site colors)
-    for (int s = 0; s < vd->n_cells; s++) {
-      image_fill_poly(&image, vd->polys[s], vd->poly_n[s], map->sites[s].color);
-    }
-    // Cell borders (the Voronoi edges)
-    Color edge = { 30, 30, 30, 255 };
-    for (int s = 0; s < vd->n_cells; s++) {
-      for (int k = 0; k < vd->poly_n[s]; k++) {
-        Vector2 a = vd->polys[s][k], b = vd->polys[s][(k + 1) % vd->poly_n[s]];
-        ImageDrawLine(&image, (int)a.x, (int)a.y, (int)b.x, (int)b.y, edge);
-      }
-    }
-
-    for (int t = 0; t < map->n_tris; t++) {
-      Vector2 a = map->sites[map->tris[3 * t + 0]].pos;
-      Vector2 b = map->sites[map->tris[3 * t + 1]].pos;
-      Vector2 c = map->sites[map->tris[3 * t + 2]].pos;
-      ImageDrawLine(&image, (int)a.x, (int)a.y, (int)b.x, (int)b.y, GRAY);
-      ImageDrawLine(&image, (int)b.x, (int)b.y, (int)c.x, (int)c.y, GRAY);
-      ImageDrawLine(&image, (int)c.x, (int)c.y, (int)a.x, (int)a.y, GRAY);
-    }
-
-  } else {
-    // Fallback (no diagram): Delaunay edges
-    for (int t = 0; t < map->n_tris; t++) {
-      Vector2 a = map->sites[map->tris[3 * t + 0]].pos;
-      Vector2 b = map->sites[map->tris[3 * t + 1]].pos;
-      Vector2 c = map->sites[map->tris[3 * t + 2]].pos;
-      ImageDrawLine(&image, (int)a.x, (int)a.y, (int)b.x, (int)b.y, GRAY);
-      ImageDrawLine(&image, (int)b.x, (int)b.y, (int)c.x, (int)c.y, GRAY);
-      ImageDrawLine(&image, (int)c.x, (int)c.y, (int)a.x, (int)a.y, GRAY);
-    }
+  Vector2 *poly = malloc(sizeof(Vector2) * (size_t)(2 * (map->nc > 0 ? map->nc : 1) + 8));
+  for (int i = 0; i < map->nc; i++) {
+    int n = cell_polygon(map, i, poly, 2 * map->nc + 8);
+    float elev = map->c[i].elevation/100;
+    Color hightColor = { elev * 255, elev * 255, elev * 255, 255};
+    image_fill_poly(&image, poly, n, hightColor);
   }
+  free(poly);
 
-  // Sites on top
-  for (int i = 0; i < map->n_sites; i++) {
-    ImageDrawCircleV(&image, map->sites[i].pos, 3, BLACK);
-  }
+  // Cell borders: every edge polyline (clipped to the map rect).
+  // Color edge = { 30, 30, 30, 255 };
+  // for (int i = 0; i < map->ne; i++) {
+  //   int s = map->pstart[i], len = map->plen[i];
+  //   for (int j = 0; j + 1 < len; j++) {
+  //     Vector2 a = map->pool[s + j], b = map->pool[s + j + 1];
+  //     ImageDrawLine(&image, (int)a.x, (int)a.y, (int)b.x, (int)b.y, edge);
+  //   }
+  // }
+
+  // // Sites on top
+  // for (int i = 0; i < map->nc; i++) {
+  //   ImageDrawCircleV(&image, map->c[i].pos, 3, map->c[i].color);
+  // }
 
   return image;
+}
+
+Texture2D genVoronoiTexture(MapData *map) {
+  Image img = genVoronoiImage(map);
+  Texture2D tex = LoadTextureFromImage(img);
+  UnloadImage(img);
+  return tex;
 }

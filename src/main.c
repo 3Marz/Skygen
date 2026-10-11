@@ -1,3 +1,4 @@
+// #include "open-simplex-noise.h"
 #include "map_gen.c"
 #include <math.h>
 #include <raylib.h>
@@ -9,12 +10,18 @@ int main(void) {
 
   InitWindow(screenWidth, screenHeight, "SKYGEN");
 
+  Params params = {
+    .map_size = (Vector2){1024, 1024},
+    .n_sites = 1000,
+    .relax = 2,
+  };
+
   // Voronoi Map
-  int site_count = 1000;
-  Vector2 map_size = (Vector2){1024, 1024};
-  VoronoiMap *v_map = initVoronoiMap(map_size, site_count);
-  triangulateVoronoiMap(v_map);
-  relaxVoronoiMap(v_map, 2);
+  MapData *v_map = initVoronoiMap(params);
+  generateVoronoiMap(v_map, params);
+
+  // struct osn_context *noise_ctx;
+  // open_simplex_noise(GetRandomValue(0, 10000), &noise_ctx);
 
   // Camera setup
   // Camera camera = {0};
@@ -31,11 +38,10 @@ int main(void) {
   // bool isFP = false;
 
   // Map Texture
-  Image mapImage = genVoronoiImage(v_map);
-  Texture2D mapTexture = LoadTextureFromImage(mapImage);
+  Texture2D mapTexture = genVoronoiTexture(v_map);
 
   // Perlin noise
-  Texture2D noiseTexture = LoadTextureFromImage(v_map->noise_img);
+  // Texture2D noiseTexture = LoadTextureFromImage(v_map->noise_img);
 
   // Mesh terrainMesh = GenMeshHeightmap(noiseImage,
   // (Vector3){ 50.0f, 30.0f, 50.0f }); Model terrainModel =
@@ -44,59 +50,39 @@ int main(void) {
   // terrainModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture =
   // noiseTexture;
   
-  UnloadImage(mapImage);
 
-
-  // for (int i = 0; i < v_map->vor.n_cells; i++) {
-  //   printf("polys number: %d\n", i);
-  //   printf("polys x: %f\n", v_map->vor.polys[i]->x);
-  //   printf("polys y: %f\n", v_map->vor.polys[i]->y);
-  //   printf("\n");
+  // for (int i = 0; i < v_map->nc; i++) {
+  //   printf("center %d = (%f, %f) corners: %d\n", i, v_map->c[i].pos.x,
+  //          v_map->c[i].pos.y, v_map->c[i].ncorners);
   // }
-
+  
   SetTargetFPS(60);
 
   int regenerate = 0;
-  int relax_points = 0;
 
   while (!WindowShouldClose()) {
     // Update
     // UpdateCamera(&camera, cameraMode);
 
     // if (IsKeyPressed(KEY_Z)) { switchCamera = true; }
-    if (IsKeyPressed(KEY_R)) { relaxVoronoiMap(v_map, 1); regenerate = 1; }
+    // if (IsKeyPressed(KEY_R)) { relaxVoronoiMap(v_map, 1); regenerate = 1; }
     if (IsKeyPressed(KEY_SPACE)) { 
-      SetRandomSeed(GetRandomValue(0, 10000));
-      freeVoronoiMap(v_map);
-      v_map = initVoronoiMap(map_size, site_count);
       regenerate = 1;
-      relax_points = 1;
     }
     if (IsKeyPressed(KEY_UP)) {
-      site_count += 200;
-      freeVoronoiMap(v_map);
-      v_map = initVoronoiMap(map_size, site_count);
+      params.n_sites += 200;
       regenerate = 1;
-      relax_points = 1;
     }
     if (IsKeyPressed(KEY_DOWN)) {
-      site_count -= 200;
-      freeVoronoiMap(v_map);
-      v_map = initVoronoiMap(map_size, site_count);
+      params.n_sites -= 200;
       regenerate = 1;
-      relax_points = 1;
     }
 
     if (regenerate) {
-      triangulateVoronoiMap(v_map);
-      if (relax_points) {
-        relaxVoronoiMap(v_map, 2);
-        relax_points = 0;
-      }
+      generateVoronoiMap(v_map, params);
 
-      mapImage = genVoronoiImage(v_map);
-      mapTexture = LoadTextureFromImage(mapImage);
-      UnloadImage(mapImage);
+      UnloadTexture(mapTexture);
+      mapTexture = genVoronoiTexture(v_map);
 
       regenerate = 0;
     }
@@ -121,30 +107,26 @@ int main(void) {
     // Draw
     BeginDrawing();
     ClearBackground(BLACK);
+      
+      // BeginMode3D(camera);
+      //     // DrawGrid(25, 5.0f);
+      //     DrawModelWires(terrainModel, (Vector3){ -25.0f, -15.0f, -25.0f
+      //     }, 1.0f, WHITE);
+      // EndMode3D();
 
-    // BeginMode3D(camera);
-    //     // DrawGrid(25, 5.0f);
-    //     DrawModelWires(terrainModel, (Vector3){ -25.0f, -15.0f, -25.0f
-    //     }, 1.0f, WHITE);
-    // EndMode3D();
+      DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
+      // DrawTextureEx(noiseTexture, (Vector2){750.0f, 0.0f}, 0.0f, 0.3f, WHITE);
+      
 
-    DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
-    DrawTextureEx(noiseTexture, (Vector2){750.0f, 0.0f}, 0.0f, 0.3f, WHITE);
-
-    // DrawFPS(20, 20);
-    // for (int i = 0; i < v_map->vor.n_cells; i++) {
-    //   printf("polys number: %d\n", v_map->vor.poly_n[i]);
-    //   // DrawCircleV(*v_map->vor.polys[i], 3.0f, YELLOW);
-    // }
+      // DrawFPS(20, 20);
+      // for (int i = 0; i < v_map->nc; i++) {
+      //   DrawCircleV(v_map->c[i].pos, 3.0f, YELLOW);
+      // }
 
     EndDrawing();
   }
 
   UnloadTexture(mapTexture);
-  UnloadTexture(noiseTexture);
-
-  // UnloadImage(noiseImage);
-  // UnloadModel(terrainModel);
 
   freeVoronoiMap(v_map);
 
