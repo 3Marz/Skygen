@@ -1371,8 +1371,15 @@ static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
 	}
 }
 
-static void drawFillPoly(Vector2 *poly, int n, Color c)
+static void drawCenterPoly(MapData *map, int center, Color c)
 {
+  int n = map->c[center].ncorners;
+  Vector2 poly[n];
+
+  for (int i = 0; i < n; i++) {
+    poly[i] = map->q[map->c[center].corners[i]].pos;
+  }
+
 	if (n < 3) return;
 	float x0 = poly[0].x, x1 = poly[0].x, y0 = poly[0].y, y1 = poly[0].y;
 	for (int i = 1; i < n; i++) {
@@ -1439,30 +1446,17 @@ Texture2D genVoronoiTexture(MapData *map) {
 
 void DrawVoronoiMap(MapData *map) {
 
-  // Vector2 *poly = malloc(sizeof(Vector2) * (size_t)(2 * (map->nc > 0 ? map->nc : 1) + 8));
-  // for (int i = 0; i < map->nc; i++) {
-  //   int n = cell_polygon(map, i, poly, 2 * map->nc + 8);
-  //   float elev = map->c[i].elevation/100;
-  //   // Color hightColor = { elev * 255, elev * 255, elev * 255, 255};
-  //   Color hightColor = {GetRandomValue(0, 255),GetRandomValue(0, 255), GetRandomValue(0, 255), 255};
-  //   drawFillPoly(poly, n, hightColor);
-  // }
-  // free(poly);
-  
-  for (int i = 0; i < map->nc; i++) {
-  }
-
-
-  for (int i; i < map->ne; i++) {
-    Edge e = map->e[i];
-    Vector2 start = map->q[e.v0].pos;
-    Vector2 end = map->q[e.v1].pos;
-    DrawLineV(start, end, BLACK);
-  }
-
   // Sites on top
   for (int i = 0; i < map->nc; i++) {
+    drawCenterPoly(map, i, GREEN);
     DrawCircleV(map->c[i].pos, 3, BLACK);
   }
+
+  // for (int i; i < map->ne; i++) {
+  //   Edge e = map->e[i];
+  //   Vector2 start = map->q[e.v0].pos;
+  //   Vector2 end = map->q[e.v1].pos;
+  //   DrawLineV(start, end, BLACK);
+  // }
 
 }
