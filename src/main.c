@@ -5,13 +5,15 @@
 #include <stdio.h>
 
 int main(void) {
-  const int screenWidth = 1080;
-  const int screenHeight = 720;
+  const int screenWidth = 800;
+  const int screenHeight = 800;
 
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(screenWidth, screenHeight, "SKYGEN");
+  SetTargetFPS(60);
 
   Params params = {
-    .map_size = (Vector2){1024, 1024},
+    .map_size = (Vector2){800, 800},
     .n_sites = 1000,
     .relax = 2,
   };
@@ -56,7 +58,6 @@ int main(void) {
   //          v_map->c[i].pos.y, v_map->c[i].ncorners);
   // }
   
-  SetTargetFPS(60);
 
   int regenerate = 0;
 
@@ -106,7 +107,7 @@ int main(void) {
 
     // Draw
     BeginDrawing();
-    ClearBackground(BLACK);
+    ClearBackground(RAYWHITE);
       
       // BeginMode3D(camera);
       //     // DrawGrid(25, 5.0f);
@@ -114,8 +115,9 @@ int main(void) {
       //     }, 1.0f, WHITE);
       // EndMode3D();
 
-      DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
+      // DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
       // DrawTextureEx(noiseTexture, (Vector2){750.0f, 0.0f}, 0.0f, 0.3f, WHITE);
+      DrawVoronoiMap(v_map);
       
 
       // DrawFPS(20, 20);

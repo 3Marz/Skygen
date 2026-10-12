@@ -1340,6 +1340,7 @@ void generateVoronoiMap(MapData *map, Params p) {
   genHightmap(map);
 }
 
+
 /* Even-odd scanline polygon fill. */
 static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
 {
@@ -1366,6 +1367,35 @@ static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
 				}
 			}
 			if (inside) ImageDrawPixel(img, x, y, c);
+		}
+	}
+}
+
+static void drawFillPoly(Vector2 *poly, int n, Color c)
+{
+	if (n < 3) return;
+	float x0 = poly[0].x, x1 = poly[0].x, y0 = poly[0].y, y1 = poly[0].y;
+	for (int i = 1; i < n; i++) {
+		if (poly[i].x < x0) x0 = poly[i].x;
+		if (poly[i].x > x1) x1 = poly[i].x;
+		if (poly[i].y < y0) y0 = poly[i].y;
+		if (poly[i].y > y1) y1 = poly[i].y;
+	}
+	int ix0 = x0 < 0 ? 0 : (int)x0, iy0 = y0 < 0 ? 0 : (int)y0;
+	int ix1 = (int)x1;
+	int iy1 = (int)y1;
+	for (int y = iy0; y <= iy1; y++) {
+		for (int x = ix0; x <= ix1; x++) {
+			int inside = 0;
+			for (int i = 0, k = n - 1; i < n; k = i++) {
+				float px = poly[k].x, py = poly[k].y;
+				float qx = poly[i].x, qy = poly[i].y;
+				if ((py > y) != (qy > y)) {
+					float xin = px + (qx - px) * (y - py) / (qy - py);
+					if (x < xin) inside = !inside;
+				}
+			}
+			if (inside) DrawPixel(x, y, c);
 		}
 	}
 }
@@ -1405,4 +1435,34 @@ Texture2D genVoronoiTexture(MapData *map) {
   Texture2D tex = LoadTextureFromImage(img);
   UnloadImage(img);
   return tex;
+}
+
+void DrawVoronoiMap(MapData *map) {
+
+  // Vector2 *poly = malloc(sizeof(Vector2) * (size_t)(2 * (map->nc > 0 ? map->nc : 1) + 8));
+  // for (int i = 0; i < map->nc; i++) {
+  //   int n = cell_polygon(map, i, poly, 2 * map->nc + 8);
+  //   float elev = map->c[i].elevation/100;
+  //   // Color hightColor = { elev * 255, elev * 255, elev * 255, 255};
+  //   Color hightColor = {GetRandomValue(0, 255),GetRandomValue(0, 255), GetRandomValue(0, 255), 255};
+  //   drawFillPoly(poly, n, hightColor);
+  // }
+  // free(poly);
+  
+  for (int i = 0; i < map->nc; i++) {
+  }
+
+
+  for (int i; i < map->ne; i++) {
+    Edge e = map->e[i];
+    Vector2 start = map->q[e.v0].pos;
+    Vector2 end = map->q[e.v1].pos;
+    DrawLineV(start, end, BLACK);
+  }
+
+  // Sites on top
+  for (int i = 0; i < map->nc; i++) {
+    DrawCircleV(map->c[i].pos, 3, BLACK);
+  }
+
 }
