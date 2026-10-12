@@ -81,10 +81,9 @@ int main(void) {
 
     if (regenerate) {
       generateVoronoiMap(v_map, params);
-
-      UnloadTexture(mapTexture);
+      // The map owns its texture and frees the previous one itself, so no
+      // UnloadTexture here.
       mapTexture = genVoronoiTexture(v_map);
-
       regenerate = 0;
     }
 

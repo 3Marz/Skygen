@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "utils.c"
 
 /* Capacity of the per-vertex adjacency arrays. Must exceed the largest
  * Delaunay degree / Voronoi-vertex degree in the map; overflow is counted in
@@ -66,6 +67,11 @@ typedef struct {
   HullEdge **howned;            /* recursion scratch rings, for cleanup   */
   int n_howned, cap_howned;
   int clamped;                  /* adjacencies dropped because of MAXN      */
+
+  /* Cached rendering. Rebuilt only when the map changes, since filling and
+   * uploading every frame is pure waste for a static map. */
+  Texture2D tex;
+  int dirty;
 } MapData;
 
 /* -------------------------------------------------------------------------
@@ -640,6 +646,9 @@ MapData *initVoronoiMap(Params p) {
   map->cap_howned = 0;
   map->clamped = 0;
 
+  map->tex = (Texture2D){ 0 };
+  map->dirty = 1;
+
   return map;
 }
 
@@ -664,6 +673,10 @@ static void freeGraph(MapData *map)
 
 void freeVoronoiMap(MapData *map) {
   if (!map) return;
+  if (map->tex.id != 0) {
+    UnloadTexture(map->tex);
+    map->tex = (Texture2D){ 0 };
+  }
   freeGraph(map);
   freeHullEdges(map);
   free(map->tris);
@@ -1091,6 +1104,7 @@ static void buildVoronoiGraph(MapData *map)
 static void triangulateMap(MapData *map) {
   if (!map) return;
 
+  map->dirty = 1; // cached texture no longer matches the geometry
   freeHullEdges(map); // scratch from any previous run
 
   qsort(map->c, (size_t)map->nc, sizeof(Center), compare_sites);
@@ -1304,16 +1318,52 @@ void genHightmap(MapData *map) {
     map->c[i].elevation = 0; // Base height (ocean)
   }
 
+  float blob_power = 0.75f;
+
   // Add hill
-  int n_hill = 2;
+  int n_hill = 1;
+  int hill_w[] = { 2, 5 }, hill_h[] = { 50, 100 }, 
+      hill_x[] = { 0, map->texture_size.x },
+      hill_y[] = { 0, map->texture_size.y };
+
   for (int i = 0; i < n_hill; i++) {
-    int x = GetRandomValue(0, map->texture_size.x);
-    int y = GetRandomValue(0, map->texture_size.y);
-    int center = getClosestCenterIndex(map, (Vector2){x, y});
-    if (center < 0) continue;
-    map->c[center].elevation = 100;
+
+    int change[map->nc];
+    int start;
+    int limit = 0;
+    int h = GetRandomValue(hill_h[0], hill_h[1]);
+
+    do {
+      Vector2 randPos = { GetRandomValue(hill_x[0], hill_x[1]), GetRandomValue(hill_y[0], hill_y[1]) };
+      start = getClosestCenterIndex(map, randPos);
+      limit++;
+    } while (map->c[start].elevation + h > 90 && limit < 50);
+
+    change[start] = h;
+    IntArray queue; 
+    int_array_init(&queue, 1);
+    int_array_push(&queue, start);
+    while (queue.size > 0) {
+      int q;
+      int_array_shift(&queue, &q);
+
+      for (int ni = 0; ni < map->c->nneigh; ni++) {
+        int n = map->c->neigh[ni];
+        if (change[n]) continue;
+        float r = (float)GetRandomValue(0, 1000000) / 1000000.0f;
+        change[n] = pow(change[q], blob_power) * (r * 0.2f + 0.9f);
+        if (change[n] > 1.0f) int_array_push(&queue, n); 
+      }
+    }
+    int_array_free(&queue);
+
+    for (int j = 0; j < map->nc; j++) {
+      if (change[j]) map->c[j].elevation += change[j];
+    }
+
   }
 
+  map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
 
 /* Reseed the centers and rebuild the map, optionally relaxing afterwards. */
@@ -1341,81 +1391,85 @@ void generateVoronoiMap(MapData *map, Params p) {
 }
 
 
-/* Even-odd scanline polygon fill. */
-static void image_fill_poly(Image *img, Vector2 *poly, int n, Color c)
+/* Fill a convex polygon (cell outlines always are) into an Image.
+ *
+ * One span per scanline: each row intersects the polygon in exactly one
+ * interval, so we only need the min/max crossing of the edges that span that
+ * row, then write the run directly. That drops the per-pixel edge test the old
+ * even-odd fill did (bbox x corners per pixel) and writes straight into the
+ * pixel buffer instead of paying ImageDrawPixel per pixel.
+ *
+ * Rasterized at pixel centers (y + 0.5, x + 0.5): a pixel belongs to the span
+ * when its center is inside, which makes adjacent cells share the boundary
+ * pixel exactly once and keeps the coverage gap-free.
+ */
+static void fill_convex_poly(Image *img, const Vector2 *poly, int n, Color c)
 {
-	if (n < 3) return;
-	float x0 = poly[0].x, x1 = poly[0].x, y0 = poly[0].y, y1 = poly[0].y;
+	if (!img || !img->data || n < 3) return;
+
+	int w = img->width, h = img->height;
+	if (w <= 0 || h <= 0) return;
+
+	float ymin = poly[0].y, ymax = poly[0].y;
 	for (int i = 1; i < n; i++) {
-		if (poly[i].x < x0) x0 = poly[i].x;
-		if (poly[i].x > x1) x1 = poly[i].x;
-		if (poly[i].y < y0) y0 = poly[i].y;
-		if (poly[i].y > y1) y1 = poly[i].y;
+		if (poly[i].y < ymin) ymin = poly[i].y;
+		if (poly[i].y > ymax) ymax = poly[i].y;
 	}
-	int ix0 = x0 < 0 ? 0 : (int)x0, iy0 = y0 < 0 ? 0 : (int)y0;
-	int ix1 = x1 >= img->width ? img->width - 1 : (int)x1;
-	int iy1 = y1 >= img->height ? img->height - 1 : (int)y1;
-	for (int y = iy0; y <= iy1; y++) {
-		for (int x = ix0; x <= ix1; x++) {
-			int inside = 0;
-			for (int i = 0, k = n - 1; i < n; k = i++) {
-				float px = poly[k].x, py = poly[k].y;
-				float qx = poly[i].x, qy = poly[i].y;
-				if ((py > y) != (qy > y)) {
-					float xin = px + (qx - px) * (y - py) / (qy - py);
-					if (x < xin) inside = !inside;
-				}
+
+	// Rows whose center can fall inside the polygon.
+	int ys = (int)ceilf(ymin - 0.5f);
+	int ye = (int)floorf(ymax - 0.5f);
+	if (ys < 0) ys = 0;
+	if (ye > h - 1) ye = h - 1;
+
+	Color *px = (Color *)img->data; // raylib 6.0 declares Image.data as void *
+	for (int y = ys; y <= ye; y++) {
+		float sy = (float)y + 0.5f;
+		float xmin = 0, xmax = 0;
+		int found = 0;
+
+		for (int i = 0; i < n; i++) {
+			Vector2 a = poly[i];
+			Vector2 b = poly[(i + 1) % n];
+			// Skip horizontal edges and edges entirely above/below this row.
+			if ((a.y <= sy) == (b.y <= sy)) continue;
+			float t = (sy - a.y) / (b.y - a.y);
+			float x = a.x + (b.x - a.x) * t;
+			if (!found) {
+				xmin = xmax = x;
+				found = 1;
+			} else {
+				if (x < xmin) xmin = x;
+				if (x > xmax) xmax = x;
 			}
-			if (inside) ImageDrawPixel(img, x, y, c);
 		}
-	}
-}
+		if (!found) continue;
 
-static void drawCenterPoly(MapData *map, int center, Color c)
-{
-  int n = map->c[center].ncorners;
-  Vector2 poly[n];
+		// Round OUTWARD (floor the left, ceil the right). Neighbouring cells compute
+		// the shared crossing by interpolating along their own edge, so the two
+		// results can differ by a float epsilon. Rounding inward can then drop
+		// the column between them and leave a 1px hole; rounding outward lets
+		// them overlap by at most one column instead, and the later cell wins.
+		int xa = (int)floorf(xmin - 0.5f);
+		int xb = (int)ceilf(xmax - 0.5f);
+		if (xa < 0) xa = 0;
+		if (xb > w - 1) xb = w - 1;
 
-  for (int i = 0; i < n; i++) {
-    poly[i] = map->q[map->c[center].corners[i]].pos;
-  }
-
-	if (n < 3) return;
-	float x0 = poly[0].x, x1 = poly[0].x, y0 = poly[0].y, y1 = poly[0].y;
-	for (int i = 1; i < n; i++) {
-		if (poly[i].x < x0) x0 = poly[i].x;
-		if (poly[i].x > x1) x1 = poly[i].x;
-		if (poly[i].y < y0) y0 = poly[i].y;
-		if (poly[i].y > y1) y1 = poly[i].y;
-	}
-	int ix0 = x0 < 0 ? 0 : (int)x0, iy0 = y0 < 0 ? 0 : (int)y0;
-	int ix1 = (int)x1;
-	int iy1 = (int)y1;
-	for (int y = iy0; y <= iy1; y++) {
-		for (int x = ix0; x <= ix1; x++) {
-			int inside = 0;
-			for (int i = 0, k = n - 1; i < n; k = i++) {
-				float px = poly[k].x, py = poly[k].y;
-				float qx = poly[i].x, qy = poly[i].y;
-				if ((py > y) != (qy > y)) {
-					float xin = px + (qx - px) * (y - py) / (qy - py);
-					if (x < xin) inside = !inside;
-				}
-			}
-			if (inside) DrawPixel(x, y, c);
-		}
+		Color *row = px + (size_t)y * w;
+		for (int x = xa; x <= xb; x++) row[x] = c;
 	}
 }
 
 Image genVoronoiImage(MapData *map) {
   Image image = GenImageColor((int)map->texture_size.x, (int)map->texture_size.y, WHITE);
 
-  Vector2 *poly = malloc(sizeof(Vector2) * (size_t)(2 * (map->nc > 0 ? map->nc : 1) + 8));
+  int cap = 2 * (map->nc > 0 ? map->nc : 1) + 8;
+  Vector2 *poly = malloc(sizeof(Vector2) * (size_t)cap);
   for (int i = 0; i < map->nc; i++) {
-    int n = cell_polygon(map, i, poly, 2 * map->nc + 8);
-    float elev = map->c[i].elevation/100;
+    int n = cell_polygon(map, i, poly, cap);
+    float elev = map->c[i].elevation / 100;
     Color hightColor = { elev * 255, elev * 255, elev * 255, 255};
-    image_fill_poly(&image, poly, n, hightColor);
+    fill_convex_poly(&image, poly, n, hightColor);
   }
   free(poly);
 
@@ -1438,25 +1492,31 @@ Image genVoronoiImage(MapData *map) {
 }
 
 Texture2D genVoronoiTexture(MapData *map) {
+  if (!map->dirty && map->tex.id != 0) return map->tex;
+  if (map->tex.id != 0) UnloadTexture(map->tex);
   Image img = genVoronoiImage(map);
-  Texture2D tex = LoadTextureFromImage(img);
+  map->tex = LoadTextureFromImage(img);
   UnloadImage(img);
-  return tex;
+  map->dirty = 0;
+  return map->tex;
 }
 
+/* Screen overlay for the cached map: one textured quad, then vector lines and
+ * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
 void DrawVoronoiMap(MapData *map) {
+  DrawTextureEx(genVoronoiTexture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+
+  // Cell borders: the already-clipped edge polylines.
+  Color edge = { 100, 100, 100, 255 };
+  for (int i = 0; i < map->ne; i++) {
+    int s = map->pstart[i], len = map->plen[i];
+    for (int j = 0; j + 1 < len; j++) {
+      DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
+    }
+  }
 
   // Sites on top
   for (int i = 0; i < map->nc; i++) {
-    drawCenterPoly(map, i, GREEN);
     DrawCircleV(map->c[i].pos, 3, BLACK);
   }
-
-  // for (int i; i < map->ne; i++) {
-  //   Edge e = map->e[i];
-  //   Vector2 start = map->q[e.v0].pos;
-  //   Vector2 end = map->q[e.v1].pos;
-  //   DrawLineV(start, end, BLACK);
-  // }
-
 }
