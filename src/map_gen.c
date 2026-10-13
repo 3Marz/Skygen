@@ -32,7 +32,14 @@ typedef struct {
   Vector2 pos;
   int border, water, ocean, coast, biome;
   float elevation, moisture;    /* map elevation 0-100 and moisture */
-  int nneigh, neigh[MAXN];      /* adjacent centers  (Delaunay edges)       */
+  int nneigh, neigh[MAXN];      /* neighbouring centers sharing a visible border
+                                 * inside the map (the map's Voronoi graph).    */
+  /* All Delaunay neighbours, including those whose shared Voronoi edge fell
+   * outside the map. Only point_in_cell() needs these: a clipped cell is the
+   * intersection of the half-planes of its VISIBLE neighbours, but a rectangle
+   * corner can still sit on the wrong side of an off-map bisector, so the full
+   * set is required to test corners exactly. */
+  int nfneigh, fneigh[MAXN];
   int nedges, edges[MAXN];      /* edges bordering this polygon             */
   int ncorners, corners[MAXN];  /* polygon corners, sorted by angle         */
 } Center;
@@ -1303,6 +1310,7 @@ static void buildVoronoiGraph(MapData *map)
 	for (int i = 0; i < n; i++) {
 		Center *c = &map->c[i];
 		c->nneigh = 0;
+		c->nfneigh = 0;
 		c->nedges = 0;
 		c->ncorners = 0;
 		c->border = (c->pos.x <= 0.0f || c->pos.y <= 0.0f ||
@@ -1374,7 +1382,12 @@ static void buildVoronoiGraph(MapData *map)
 			int d = ds[k];
 			int other = ds[1 - k];
 			add_unique(map, map->c[d].edges, &map->c[d].nedges, i);
-			add_unique(map, map->c[d].neigh, &map->c[d].nneigh, other);
+			add_unique(map, map->c[d].fneigh, &map->c[d].nfneigh, other);
+			/* A dual clipped away entirely (plen == 0) lies wholly outside the
+			 * map, so these two cells share no boundary on screen: keep them out
+			 * of the map's neighbour relation. */
+			if (map->plen[i] > 0)
+				add_unique(map, map->c[d].neigh, &map->c[d].nneigh, other);
 			add_unique(map, map->c[d].corners, &map->c[d].ncorners, e->v0);
 			add_unique(map, map->c[d].corners, &map->c[d].ncorners, e->v1);
 		}
@@ -1498,8 +1511,8 @@ static int point_in_cell(MapData *map, int ci, Vector2 p)
 	Center *c = &map->c[ci];
 	double dc = dist2(c->pos, p);
 	double tol = dc * 1e-6 + 1e-3;
-	for (int k = 0; k < c->nneigh; k++) {
-		if (dist2(map->c[c->neigh[k]].pos, p) < dc - tol) return 0;
+	for (int k = 0; k < c->nfneigh; k++) {
+		if (dist2(map->c[c->fneigh[k]].pos, p) < dc - tol) return 0;
 	}
 	return 1;
 }
