@@ -10,6 +10,24 @@
  * MapData.clamped instead of corrupting memory. */
 #define MAXN 64
 
+typedef struct {
+  int threshold;
+  Color color;
+} ColorMap;
+
+const ColorMap heightmap_levels[] = {
+  { 20,  {50, 50, 200, 255} },
+  { 30,  {84, 240, 118, 255} },
+  { 40,  {177, 247, 106, 255} },
+  { 50,  {221, 247, 114, 255} },
+  { 60,  {232, 201, 116, 255} },
+  { 70,  {230, 166, 99, 255} },
+  { 80,  {224, 132, 79, 255} },
+  { 90,  {219, 94, 66, 255} },
+  { 100, {219, 48, 48, 255} }
+};
+const int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
+
 typedef struct HullEdge HullEdge; /* recursion scratch, defined below */
 
 typedef struct {
@@ -1318,17 +1336,18 @@ void genHightmap(MapData *map) {
     map->c[i].elevation = 0; // Base height (ocean)
   }
 
-  float blob_power = 0.75f;
+  float blob_power = 0.9f;
 
   // Add hill
-  int n_hill = 1;
-  int hill_w[] = { 2, 5 }, hill_h[] = { 50, 100 }, 
+  int n_hill = 10;
+  int hill_w[] = { 2, 5 }, hill_h[] = { 20, 50 }, 
       hill_x[] = { 0, map->texture_size.x },
       hill_y[] = { 0, map->texture_size.y };
 
   for (int i = 0; i < n_hill; i++) {
 
     int change[map->nc];
+    memset(change, 0, sizeof(change));
     int start;
     int limit = 0;
     int h = GetRandomValue(hill_h[0], hill_h[1]);
@@ -1347,8 +1366,8 @@ void genHightmap(MapData *map) {
       int q;
       int_array_shift(&queue, &q);
 
-      for (int ni = 0; ni < map->c->nneigh; ni++) {
-        int n = map->c->neigh[ni];
+      for (int ni = 0; ni < map->c[q].nneigh; ni++) {
+        int n = map->c[q].neigh[ni];
         if (change[n]) continue;
         float r = (float)GetRandomValue(0, 1000000) / 1000000.0f;
         change[n] = pow(change[q], blob_power) * (r * 0.2f + 0.9f);
@@ -1358,8 +1377,12 @@ void genHightmap(MapData *map) {
     int_array_free(&queue);
 
     for (int j = 0; j < map->nc; j++) {
-      if (change[j]) map->c[j].elevation += change[j];
+      if (change[j]) {
+        map->c[j].elevation += change[j];
+        if (map->c[j].elevation > 100) map->c[j].elevation = 100;
+      }
     }
+
 
   }
 
@@ -1467,26 +1490,19 @@ Image genVoronoiImage(MapData *map) {
   Vector2 *poly = malloc(sizeof(Vector2) * (size_t)cap);
   for (int i = 0; i < map->nc; i++) {
     int n = cell_polygon(map, i, poly, cap);
-    float elev = map->c[i].elevation / 100;
-    Color hightColor = { elev * 255, elev * 255, elev * 255, 255};
-    fill_convex_poly(&image, poly, n, hightColor);
+    float elev = map->c[i].elevation;
+    Color heightColor = heightmap_levels[0].color;
+
+    for (int j = 0; j < heightmap_n; j++) {
+      if (elev < heightmap_levels[j].threshold) {
+        heightColor = heightmap_levels[j].color;
+        break;
+      }
+    }
+
+    fill_convex_poly(&image, poly, n, heightColor);
   }
   free(poly);
-
-  // Cell borders: every edge polyline (clipped to the map rect).
-  // Color edge = { 30, 30, 30, 255 };
-  // for (int i = 0; i < map->ne; i++) {
-  //   int s = map->pstart[i], len = map->plen[i];
-  //   for (int j = 0; j + 1 < len; j++) {
-  //     Vector2 a = map->pool[s + j], b = map->pool[s + j + 1];
-  //     ImageDrawLine(&image, (int)a.x, (int)a.y, (int)b.x, (int)b.y, edge);
-  //   }
-  // }
-
-  // // Sites on top
-  // for (int i = 0; i < map->nc; i++) {
-  //   ImageDrawCircleV(&image, map->c[i].pos, 3, map->c[i].color);
-  // }
 
   return image;
 }
@@ -1503,8 +1519,10 @@ Texture2D genVoronoiTexture(MapData *map) {
 
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
-void DrawVoronoiMap(MapData *map) {
+void DrawVoronoiMap(MapData *map, int with_lines) {
   DrawTextureEx(genVoronoiTexture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+
+  if (!with_lines) return;
 
   // Cell borders: the already-clipped edge polylines.
   Color edge = { 100, 100, 100, 255 };

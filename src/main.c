@@ -116,9 +116,15 @@ int main(void) {
 
       // DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
       // DrawTextureEx(noiseTexture, (Vector2){750.0f, 0.0f}, 0.0f, 0.3f, WHITE);
-      DrawVoronoiMap(v_map);
+      DrawVoronoiMap(v_map, 0);
       
 
+      // int cn = 50;
+      // for (int ni = 0; ni < v_map->c[cn].nneigh; ni++) {
+      //   int n = v_map->c[cn].neigh[ni];
+      //   Vector2 pos = v_map->c[n].pos;
+      //   DrawCircleV(pos, 5.0f, YELLOW);
+      // }
       // DrawFPS(20, 20);
       // for (int i = 0; i < v_map->nc; i++) {
       //   DrawCircleV(v_map->c[i].pos, 3.0f, YELLOW);
