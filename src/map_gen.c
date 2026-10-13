@@ -85,6 +85,10 @@ typedef struct {
   HullEdge **howned;            /* recursion scratch rings, for cleanup   */
   int n_howned, cap_howned;
   int clamped;                  /* adjacencies dropped because of MAXN      */
+  int *eidx;                    /* directed-edge -> triangle hash, -1/-2   */
+  unsigned long long *ekey;
+  int eicap, eitomb;
+  int ecap;                     /* capacity of e[]                          */
 
   /* Cached rendering. Rebuilt only when the map changes, since filling and
    * uploading every frame is pure waste for a static map. */
@@ -156,6 +160,8 @@ static double incircle(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
 
 /* Forward declarations (defined with the post-pass / graph helpers below). */
 static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c);
+static void edge_index_free(MapData *map);
+static void edge_index_rebuild(MapData *map);
 
 static HullEdge *new_hull(MapData *map, int org, int dest)
 {
@@ -663,6 +669,11 @@ MapData *initVoronoiMap(Params p) {
   map->n_howned = 0;
   map->cap_howned = 0;
   map->clamped = 0;
+  map->eidx = NULL;
+  map->ekey = NULL;
+  map->eicap = 0;
+  map->eitomb = 0;
+  map->ecap = 0;
 
   map->tex = (Texture2D){ 0 };
   map->dirty = 1;
@@ -686,6 +697,7 @@ static void freeGraph(MapData *map)
 	map->plen = NULL;
 	map->poolN = 0;
 	map->poolCap = 0;
+	map->ecap = 0;   /* e[] is freed above, so its capacity must reset too */
 	map->spacing = 0;
 }
 
@@ -696,25 +708,191 @@ void freeVoronoiMap(MapData *map) {
     map->tex = (Texture2D){ 0 };
   }
   freeGraph(map);
+  edge_index_free(map);
   freeHullEdges(map);
   free(map->tris);
   free(map->c);
   free(map);
 }
 
+/* ---------------------------------------------------------------------
+ * Directed-edge hash index. A triangle owns three directed edges,
+ * (v0,v1), (v1,v2) and (v2,v0); two triangles are adjacent exactly when
+ * one owns (a,b) and the other owns (b,a). Indexing that turns
+ * find_partner() from an O(n_tris) scan into an O(1) probe, which is what
+ * takes the repair passes from quadratic to roughly linear.
+ * ------------------------------------------------------------------ */
+
+static unsigned eg_hash(unsigned long long k)
+{
+	k ^= k >> 33; k *= 0xff51afd7ed558ccdULL;
+	k ^= k >> 33; k *= 0xc4ceb9fe1a85ec53ULL;
+	k ^= k >> 33;
+	return (unsigned)k;
+}
+
+static unsigned long long eg_pack(int a, int b)
+{
+	return ((unsigned long long)(unsigned)a << 32) | (unsigned)b;
+}
+
+static void eg_compact(MapData *map, int force);
+
+/* -1 is a never-used slot and ends a probe; -2 is a tombstone and does not,
+ * so unlinking one key never orphans whatever sits behind it in the chain. */
+static void eg_add(MapData *map, unsigned long long k, int t)
+{
+	unsigned mask = (unsigned)map->eicap - 1;
+	unsigned h = eg_hash(k) & mask;
+	unsigned tries = 0;
+	while (map->eidx[h] != -1) {
+		if (++tries >= (unsigned)map->eicap) {
+			eg_compact(map, 1);
+			eg_add(map, k, t);
+			return;
+		}
+		h = (h + 1) & mask;
+	}
+	map->eidx[h] = t;
+	map->ekey[h] = k;
+}
+
+static void eg_drop_key(MapData *map, unsigned long long k)
+{
+	unsigned mask = (unsigned)map->eicap - 1;
+	unsigned h = eg_hash(k) & mask;
+	while (map->eidx[h] != -1) {
+		if (map->eidx[h] >= 0 && map->ekey[h] == k) {
+			map->eidx[h] = -2;
+			map->eitomb++;
+			return;
+		}
+		h = (h + 1) & mask;
+	}
+}
+
+/* Every Lawson flip unlinks as many keys as it links, and splitting edges
+ * grows n_tris, so the table has to be able to re-pack and grow itself.
+ * Sizing it once up front overflows it part-way through the repair. */
+static void eg_compact(MapData *map, int force)
+{
+	if (!force && map->eitomb <= map->eicap / 8) return;
+	int old = map->eicap;
+	int live = 0;
+	for (int i = 0; i < old; i++) if (map->eidx[i] >= 0) live++;
+	int cap = old;
+	while (cap < 4 * (live + 1)) cap <<= 1;
+
+	int n = live > 0 ? live : 1;
+	unsigned long long *k = malloc(sizeof(*k) * (size_t)n);
+	int *v = malloc(sizeof(*v) * (size_t)n);
+	n = 0;
+	for (int i = 0; i < old; i++)
+		if (map->eidx[i] >= 0) { k[n] = map->ekey[i]; v[n] = map->eidx[i]; n++; }
+	if (cap != old) {
+		map->eidx = realloc(map->eidx, sizeof(int) * (size_t)cap);
+		map->ekey = realloc(map->ekey, sizeof(unsigned long long) * (size_t)cap);
+		map->eicap = cap;
+	}
+	for (int i = 0; i < cap; i++) map->eidx[i] = -1;
+	map->eitomb = 0;
+	for (int i = 0; i < n; i++) eg_add(map, k[i], v[i]);
+	free(k);
+	free(v);
+}
+
+static void edge_index_rebuild(MapData *map)
+{
+	int n = map->n_tris;
+	int cap = 32;
+	while (cap < 4 * (n > 0 ? n : 1)) cap <<= 1;   /* load factor <= 0.25 */
+	if (cap != map->eicap) {
+		map->eidx = realloc(map->eidx, sizeof(int) * (size_t)cap);
+		map->ekey = realloc(map->ekey, sizeof(unsigned long long) * (size_t)cap);
+		map->eicap = cap;
+	}
+	for (int i = 0; i < cap; i++) map->eidx[i] = -1;
+	map->eitomb = 0;
+	for (int t = 0; t < n; t++) {
+		int *tr = &map->tris[3 * t];
+		for (int e = 0; e < 3; e++) eg_add(map, eg_pack(tr[e], tr[(e + 1) % 3]), t);
+	}
+}
+
+static void edge_index_free(MapData *map)
+{
+	free(map->eidx);
+	free(map->ekey);
+	map->eidx = NULL;
+	map->ekey = NULL;
+	map->eicap = 0;
+	map->eitomb = 0;
+}
+
+/* Register / unregister one triangle's three directed edges. */
+static void eg_link(MapData *map, int t)
+{
+	int *tr = &map->tris[3 * t];
+	for (int e = 0; e < 3; e++) eg_add(map, eg_pack(tr[e], tr[(e + 1) % 3]), t);
+}
+
+static void eg_unlink(MapData *map, int t)
+{
+	int *tr = &map->tris[3 * t];
+	for (int e = 0; e < 3; e++) eg_drop_key(map, eg_pack(tr[e], tr[(e + 1) % 3]));
+}
+
 /* Find a partner triangle sharing the directed edge b -> a (i.e. we hold a -> b). */
 static int find_partner(MapData *map, int ti, int a, int b)
 {
-	for (int j = 0; j < map->n_tris; j++) {
-		if (j == ti) continue;
-		int *t = &map->tris[3 * j];
-		if ((t[0] == b && t[1] == a) ||
-		    (t[1] == b && t[2] == a) ||
-		    (t[2] == b && t[0] == a)) {
-			return j;
-		}
+	(void)ti;
+	if (!map->eidx) return -1;
+	unsigned long long k = eg_pack(b, a);
+	unsigned mask = (unsigned)map->eicap - 1;
+	unsigned h = eg_hash(k) & mask;
+	while (map->eidx[h] != -1) {
+		if (map->eidx[h] >= 0 && map->ekey[h] == k) return map->eidx[h];
+		h = (h + 1) & mask;
 	}
 	return -1;
+}
+
+/* Split edge e of triangle t at site s, keeping the triangle on the far side
+ * conforming, and keep the edge index in step. */
+static int split_edge_with_site(MapData *map, int t, int e, int s)
+{
+	int a = map->tris[3 * t + e];
+	int b = map->tris[3 * t + (e + 1) % 3];
+	int w = map->tris[3 * t + (e + 2) % 3];
+	if (a == s || b == s || w == s) return 0;
+
+	int pj = find_partner(map, t, a, b);
+	int q = -1;
+	if (pj >= 0 && pj != t) {
+		int *nt = &map->tris[3 * pj];
+		for (int k = 0; k < 3; k++) if (nt[k] != a && nt[k] != b) q = nt[k];
+	}
+
+	eg_unlink(map, t);
+	map->tris[3 * t + 0] = a;
+	map->tris[3 * t + 1] = s;
+	map->tris[3 * t + 2] = w;
+	int nb = map->n_tris;
+	push_tri(map, s, b, w);
+	eg_link(map, t);
+	for (int i = nb; i < map->n_tris; i++) eg_link(map, i);
+
+	if (pj >= 0 && pj != t && q >= 0) {
+		eg_unlink(map, pj);
+		map->tris[3 * pj + 0] = b;
+		map->tris[3 * pj + 1] = s;
+		map->tris[3 * pj + 2] = q;
+		nb = map->n_tris;
+		push_tri(map, s, a, q);
+		eg_link(map, pj);
+		for (int i = nb; i < map->n_tris; i++) eg_link(map, i);
+	}
+	return 1;
 }
 
 /* Point strictly inside CCW triangle (a, b, c)? */
@@ -737,6 +915,112 @@ static int point_on_segment(Vector2 p, Vector2 a, Vector2 b)
 	return t > EPS && t < 1.0 - EPS;
 }
 
+/* ---------------------------------------------------------------------
+ * Triangle grid for the T-junction repair. A site lying on a triangle edge
+ * is necessarily inside that triangle's bounding box, so registering each
+ * triangle in every cell its bbox covers and consulting only the cell a site
+ * falls in turns up exactly the candidates the old site-major
+ * O(nc * n_tris) sweep did, without testing the other few thousand.
+ * ------------------------------------------------------------------ */
+
+typedef struct {
+	float inv_g, W, H;
+	int gw, gh;
+	int *head;      /* cell -> first entry, or -1                  */
+	int *tnext;     /* entry -> next entry, or -1                  */
+	int *tri;       /* entry -> triangle index                     */
+	int n, cap;
+} TriGrid;
+
+/* Cell size ~ mean site spacing, so a cell holds about one site and a
+ * typical triangle covers a handful of cells. */
+static void tg_geom(TriGrid *g, MapData *map)
+{
+	int n = map->nc;
+	g->W = map->texture_size.x;
+	g->H = map->texture_size.y;
+	float gsz = sqrtf((g->W * g->H) / (float)(n > 0 ? n : 1));
+	if (!(gsz > 0.0f)) gsz = 1.0f;
+	g->inv_g = 1.0f / gsz;
+	g->gw = (int)(g->W * g->inv_g) + 2;
+	g->gh = (int)(g->H * g->inv_g) + 2;
+}
+
+static void tg_init(TriGrid *g, MapData *map)
+{
+	tg_geom(g, map);
+	int ncells = g->gw * g->gh;
+	g->head = malloc(sizeof(int) * (size_t)ncells);
+	for (int i = 0; i < ncells; i++) g->head[i] = -1;
+	g->tnext = NULL;
+	g->tri = NULL;
+	g->n = 0;
+	g->cap = 0;
+}
+
+static void tg_free(TriGrid *g)
+{
+	free(g->head);
+	free(g->tnext);
+	free(g->tri);
+	g->head = g->tnext = g->tri = NULL;
+	g->n = g->cap = 0;
+}
+
+static int tg_cell(TriGrid *g, Vector2 p)
+{
+	int cx = (int)(p.x * g->inv_g) + 1;
+	int cy = (int)(p.y * g->inv_g) + 1;
+	if (cx < 0) cx = 0;
+	if (cx >= g->gw) cx = g->gw - 1;
+	if (cy < 0) cy = 0;
+	if (cy >= g->gh) cy = g->gh - 1;
+	return cy * g->gw + cx;
+}
+
+static void tg_push(TriGrid *g, int cell, int t)
+{
+	if (g->n == g->cap) {
+		g->cap = g->cap ? g->cap * 2 : 1024;
+		g->tnext = realloc(g->tnext, sizeof(int) * (size_t)g->cap);
+		g->tri = realloc(g->tri, sizeof(int) * (size_t)g->cap);
+	}
+	g->tri[g->n] = t;
+	g->tnext[g->n] = g->head[cell];
+	g->head[cell] = g->n;
+	g->n++;
+}
+
+/* Register triangle t in every cell its bounding box touches. A site lying
+ * anywhere inside t (or on one of its edges) therefore shares t's cell. */
+static void tg_push_tri(TriGrid *g, MapData *map, int t)
+{
+	int *tr = &map->tris[3 * t];
+	float x0 = map->c[tr[0]].pos.x, x1 = x0;
+	float y0 = map->c[tr[0]].pos.y, y1 = y0;
+	for (int k = 1; k < 3; k++) {
+		float px = map->c[tr[k]].pos.x, py = map->c[tr[k]].pos.y;
+		if (px < x0) x0 = px;
+		if (px > x1) x1 = px;
+		if (py < y0) y0 = py;
+		if (py > y1) y1 = py;
+	}
+	int cx0 = (int)(x0 * g->inv_g) + 1, cx1 = (int)(x1 * g->inv_g) + 1;
+	int cy0 = (int)(y0 * g->inv_g) + 1, cy1 = (int)(y1 * g->inv_g) + 1;
+	if (cx0 < 0) cx0 = 0;
+	if (cy0 < 0) cy0 = 0;
+	if (cx1 >= g->gw) cx1 = g->gw - 1;
+	if (cy1 >= g->gh) cy1 = g->gh - 1;
+	for (int cy = cy0; cy <= cy1; cy++)
+		for (int cx = cx0; cx <= cx1; cx++)
+			tg_push(g, cy * g->gw + cx, t);
+}
+
+static void tg_add_all(TriGrid *g, MapData *map)
+{
+	for (int t = 0; t < map->n_tris; t++) tg_push_tri(g, map, t);
+}
+
 /* The seam only walks hull chains, so a sub-hull vertex that ends up strictly
  * inside the merged hull (like a point in the "bay" between the halves) gets
  * no triangle. Insert every such site into its containing triangle. */
@@ -746,61 +1030,70 @@ static void insert_missing_sites(MapData *map)
 	int n = map->nc;
 	char *used = calloc((size_t)(n > 0 ? n : 1), 1);
 
+	// One sweep over the triangles marks every site that already owns one.
+	// Asking "does any triangle mention site s?" once per site was O(nc*n_tris).
+	for (int t = 0; t < map->n_tris; t++) {
+		int *tr = &map->tris[3 * t];
+		used[tr[0]] = 1;
+		used[tr[1]] = 1;
+		used[tr[2]] = 1;
+	}
+
+	// Grid over the triangles, kept up to date as sites are spliced in, so
+	// locating the triangle that contains a stranded site is a cell lookup
+	// instead of a scan over every triangle (which was O(nc*n_tris)).
+	TriGrid grid;
+	tg_init(&grid, map);
+	tg_add_all(&grid, map);
+
 	for (int s = 0; s < n; s++) {
 		if (used[s]) continue;
-		int cnt = 0;
-		for (int t = 0; t < map->n_tris; t++) {
-			int *tr = &map->tris[3 * t];
-			if (tr[0] == s || tr[1] == s || tr[2] == s) {
-				cnt++;
-				break;
-			}
-		}
-		if (cnt) {
-			used[s] = 1;
-			continue;
-		}
 
 		Vector2 p = map->c[s].pos;
 		int done = 0;
-		for (int t = 0; t < map->n_tris && !done; t++) {
+		// Snapshot "next" before handling the entry: splitting pushes new
+		// triangles onto this same cell list.
+		for (int e = grid.head[tg_cell(&grid, p)]; e >= 0 && !done; ) {
+			int nxt = grid.tnext[e];
+			int t = grid.tri[e];
 			int *tr = &map->tris[3 * t];
-			Vector2 a = map->c[tr[0]].pos;
-			Vector2 b = map->c[tr[1]].pos;
-			Vector2 cc = map->c[tr[2]].pos;
+			if (tr[0] != s && tr[1] != s && tr[2] != s) {
+				Vector2 a = map->c[tr[0]].pos;
+				Vector2 b = map->c[tr[1]].pos;
+				Vector2 cc = map->c[tr[2]].pos;
 
-			if (point_in_tri(p, a, b, cc)) {
-				int ia = tr[0], ib = tr[1], ic = tr[2];
-				tr[0] = ia; tr[1] = ib; tr[2] = s;
-				push_tri(map, ib, ic, s);
-				push_tri(map, ic, ia, s);
-				done = 1;
-			} else {
-				// On-edge split: p collinear on one triangle edge, strictly between.
-				int ea[3] = { tr[0], tr[1], tr[2] };
-				for (int e = 0; e < 3 && !done; e++) {
-					Vector2 u = map->c[ea[e]].pos;
-					Vector2 v = map->c[ea[(e + 1) % 3]].pos;
-					if (fabs(orient2d(u, v, p)) < EPS && point_on_segment(p, u, v)) {
-						int w = ea[(e + 2) % 3];
-						tr[0] = ea[e]; tr[1] = s; tr[2] = w;
-						push_tri(map, s, ea[(e + 1) % 3], w);
-						int pj = find_partner(map, t, ea[e], ea[(e + 1) % 3]);
-						if (pj >= 0) {
-							int *nt = &map->tris[3 * pj];
-							int q = -1;
-							for (int k = 0; k < 3; k++) {
-								if (nt[k] != ea[e] && nt[k] != ea[(e + 1) % 3]) q = nt[k];
-							}
-							if (q >= 0) {
-								nt[0] = ea[(e + 1) % 3]; nt[1] = s; nt[2] = q;
-								push_tri(map, s, ea[e], q);
+				if (point_in_tri(p, a, b, cc)) {
+					int ia = tr[0], ib = tr[1], ic = tr[2];
+					eg_unlink(map, t);
+					tr[0] = ia; tr[1] = ib; tr[2] = s;
+					int nb = map->n_tris;
+					push_tri(map, ib, ic, s);
+					push_tri(map, ic, ia, s);
+					eg_link(map, t);
+					for (int q = nb; q < map->n_tris; q++) {
+						eg_link(map, q);
+						tg_push_tri(&grid, map, q);
+					}
+					done = 1;
+				} else {
+					// On-edge split: p collinear on one triangle edge, strictly between.
+					int ea[3] = { tr[0], tr[1], tr[2] };
+					for (int k = 0; k < 3 && !done; k++) {
+						Vector2 u = map->c[ea[k]].pos;
+						Vector2 v = map->c[ea[(k + 1) % 3]].pos;
+						if (fabs(orient2d(u, v, p)) < EPS &&
+						    point_on_segment(p, u, v)) {
+							int nb = map->n_tris;
+							if (split_edge_with_site(map, t, k, s)) {
+								for (int q = nb; q < map->n_tris; q++)
+									tg_push_tri(&grid, map, q);
+								done = 1;
 							}
 						}
-						done = 1;
 					}
 				}
 			}
+			e = nxt;
 		}
 		// If no containing triangle exists there is a coverage hole; leave the
 		// site unused rather than corrupt the mesh (tests check for this).
@@ -814,42 +1107,41 @@ static void insert_missing_sites(MapData *map)
 	// triangles. T-junctions break the simplicial-complex premise that
 	// Delaunay's theorem and Lawson flips rely on: the site sits strictly
 	// inside a circumcircle across an unflippable "edge", freezing violations
-	// in place. Iterate to fixpoint.
+	// in place. Iterate to fixpoint. The old sweep tested every site against
+	// every triangle; the grid in hand already narrows that to the few
+	// triangles whose box covers the site.
 	for (int pass = 0; pass < n + 2; pass++) {
 		int split_any = 0;
 		for (int s = 0; s < n; s++) {
 			Vector2 p = map->c[s].pos;
-			for (int t = 0; t < map->n_tris; t++) {
+			for (int e = grid.head[tg_cell(&grid, p)]; e >= 0; ) {
+				int nxt = grid.tnext[e];
+				int t = grid.tri[e];
 				int *tr = &map->tris[3 * t];
-				if (tr[0] == s || tr[1] == s || tr[2] == s) continue;
-				int ea[3] = { tr[0], tr[1], tr[2] };
-				for (int e = 0; e < 3; e++) {
-					Vector2 u = map->c[ea[e]].pos;
-					Vector2 v = map->c[ea[(e + 1) % 3]].pos;
-					if (fabs(orient2d(u, v, p)) < EPS && point_on_segment(p, u, v)) {
-						int w = ea[(e + 2) % 3];
-						tr[0] = ea[e]; tr[1] = s; tr[2] = w;
-						push_tri(map, s, ea[(e + 1) % 3], w);
-						int pj = find_partner(map, t, ea[e], ea[(e + 1) % 3]);
-						if (pj >= 0) {
-							int *nt = &map->tris[3 * pj];
-							int q = -1;
-							for (int k = 0; k < 3; k++) {
-								if (nt[k] != ea[e] && nt[k] != ea[(e + 1) % 3]) q = nt[k];
+				if (tr[0] != s && tr[1] != s && tr[2] != s) {
+					int ea[3] = { tr[0], tr[1], tr[2] };
+					for (int k = 0; k < 3; k++) {
+						Vector2 u = map->c[ea[k]].pos;
+						Vector2 v = map->c[ea[(k + 1) % 3]].pos;
+						if (fabs(orient2d(u, v, p)) < EPS &&
+						    point_on_segment(p, u, v)) {
+							int nb = map->n_tris;
+							if (split_edge_with_site(map, t, k, s)) {
+								for (int q = nb; q < map->n_tris; q++)
+									tg_push_tri(&grid, map, q);
+								split_any = 1;
 							}
-							if (q >= 0) {
-								nt[0] = ea[(e + 1) % 3]; nt[1] = s; nt[2] = q;
-								push_tri(map, s, ea[e], q);
-							}
+							break; // tri t dissolved; move on (its pieces contain s)
 						}
-						split_any = 1;
-						break; // tri t dissolved; move on (its pieces contain s)
 					}
 				}
+				e = nxt;
 			}
 		}
 		if (!split_any) break;
 	}
+
+	tg_free(&grid);
 }
 
 /* Lawson flip pass: repeatedly flip non-Delaunay interior diagonals until the
@@ -867,7 +1159,7 @@ static void lawson_flip_pass(MapData *map)
 			for (int e = 0; e < 3; e++) {
 				int a = t[e], b = t[(e + 1) % 3], p = t[(e + 2) % 3];
 				int j = find_partner(map, i, a, b);
-				if (j < 0) continue;
+				if (j < 0 || j == i) continue;
 				int *u = &map->tris[3 * j];
 				int q = -1;
 				for (int k = 0; k < 3; k++) {
@@ -884,8 +1176,13 @@ static void lawson_flip_pass(MapData *map)
 					// turns), otherwise the flip would fold the mesh.
 					if (orient2d(B, P, A) > EPS && orient2d(P, A, Q) > EPS &&
 					    orient2d(A, Q, B) > EPS && orient2d(Q, B, P) > EPS) {
+						eg_unlink(map, i);
+						eg_unlink(map, j);
 						t[0] = b; t[1] = p; t[2] = q;
 						u[0] = p; u[1] = a; u[2] = q;
+						eg_link(map, i);
+						eg_link(map, j);
+						eg_compact(map, 0);
 						changed = 1;
 					}
 				}
@@ -965,9 +1262,13 @@ static void push_edge(MapData *map, int d0, int d1, int v0, int v1)
 {
 	float W = map->texture_size.x, H = map->texture_size.y;
 
-	map->e = realloc(map->e, sizeof(Edge) * (size_t)(map->ne + 1));
-	map->pstart = realloc(map->pstart, sizeof(int) * (size_t)(map->ne + 1));
-	map->plen = realloc(map->plen, sizeof(int) * (size_t)(map->ne + 1));
+	if (map->ne == map->ecap) {
+		int cap = map->ecap ? map->ecap * 2 : 256;
+		map->e = realloc(map->e, sizeof(Edge) * (size_t)cap);
+		map->pstart = realloc(map->pstart, sizeof(int) * (size_t)cap);
+		map->plen = realloc(map->plen, sizeof(int) * (size_t)cap);
+		map->ecap = cap;
+	}
 
 	int i = map->ne;
 	Edge *e = &map->e[i];
@@ -1154,6 +1455,7 @@ static void triangulateMap(MapData *map) {
   // Repair: the D&C seam can strand sub-hull vertices that end up strictly
   // inside the merged hull; insert them, split T-junctions for conformity,
   // then flip back to Delaunay.
+  edge_index_rebuild(map);
   insert_missing_sites(map);
   lawson_flip_pass(map);
 
@@ -1183,7 +1485,11 @@ static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vecto
 }
 
 int getClosestCenterIndex(MapData *map, Vector2 p) {
-  double minDist = map->texture_size.x;
+  /* dist2() returns a SQUARED distance, so the sentinel must be larger than
+   * any possible one (max is width^2+height^2). The old value of
+   * texture_size.x (~800) bailed out on points farther than ~28px from every
+   * center and returned -1, which genHightmap then used to index c[-1]. */
+  double minDist = 1e300;
   int minIndex = -1;
   for (int i = 0; i < map->nc; i++) {
     double dist = dist2(map->c[i].pos, p);
@@ -1356,7 +1662,8 @@ void genHightmap(MapData *map) {
       Vector2 randPos = { GetRandomValue(hill_x[0], hill_x[1]), GetRandomValue(hill_y[0], hill_y[1]) };
       start = getClosestCenterIndex(map, randPos);
       limit++;
-    } while (map->c[start].elevation + h > 90 && limit < 50);
+    } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
+    if (start < 0) start = 0; /* no centers at all; keep the index valid */
 
     change[start] = h;
     IntArray queue; 

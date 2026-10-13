@@ -14,7 +14,7 @@ int main(void) {
 
   Params params = {
     .map_size = (Vector2){800, 800},
-    .n_sites = 1000,
+    .n_sites = 5000,
     .relax = 2,
   };
 
@@ -81,8 +81,6 @@ int main(void) {
 
     if (regenerate) {
       generateVoronoiMap(v_map, params);
-      // The map owns its texture and frees the previous one itself, so no
-      // UnloadTexture here.
       mapTexture = genVoronoiTexture(v_map);
       regenerate = 0;
     }
