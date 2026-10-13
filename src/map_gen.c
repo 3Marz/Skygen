@@ -10,21 +10,12 @@
  * MapData.clamped instead of corrupting memory. */
 #define MAXN 64
 
-typedef struct {
-  int threshold;
-  Color color;
-} ColorMap;
-
-const ColorMap heightmap_levels[] = {
-  { 20,  {50, 50, 200, 255} },
-  { 30,  {84, 240, 118, 255} },
-  { 40,  {177, 247, 106, 255} },
-  { 50,  {221, 247, 114, 255} },
-  { 60,  {232, 201, 116, 255} },
-  { 70,  {230, 166, 99, 255} },
-  { 80,  {224, 132, 79, 255} },
-  { 90,  {219, 94, 66, 255} },
-  { 100, {219, 48, 48, 255} }
+const GradientStop heightmap_levels[] = {
+  { 0.20f,  {50, 50, 200, 255} },
+  { 0.21f,  {105, 189, 169, 255} },
+  { 0.50f,  {221, 247, 114, 255} },
+  { 0.90f,  {219, 94, 66, 255} },
+  { 1.01f,  {219, 48, 48, 255} }
 };
 const int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
 
@@ -1642,13 +1633,13 @@ void genHightmap(MapData *map) {
     map->c[i].elevation = 0; // Base height (ocean)
   }
 
-  float blob_power = 0.9f;
+  float blob_power = 0.98f;
 
   // Add hill
-  int n_hill = 10;
-  int hill_w[] = { 2, 5 }, hill_h[] = { 20, 50 }, 
-      hill_x[] = { 0, map->texture_size.x },
-      hill_y[] = { 0, map->texture_size.y };
+  int n_hill = 2;
+  int hill_h[] = { 40, 80 }, 
+      hill_x[] = { 50, map->texture_size.x-50 },
+      hill_y[] = { 50, map->texture_size.y-50 };
 
   for (int i = 0; i < n_hill; i++) {
 
@@ -1797,15 +1788,11 @@ Image genVoronoiImage(MapData *map) {
   Vector2 *poly = malloc(sizeof(Vector2) * (size_t)cap);
   for (int i = 0; i < map->nc; i++) {
     int n = cell_polygon(map, i, poly, cap);
-    float elev = map->c[i].elevation;
-    Color heightColor = heightmap_levels[0].color;
-
-    for (int j = 0; j < heightmap_n; j++) {
-      if (elev < heightmap_levels[j].threshold) {
-        heightColor = heightmap_levels[j].color;
-        break;
-      }
-    }
+    float elev = map->c[i].elevation / 100.0f;
+    Color heightColor = get_percentage_gradient_color(heightmap_levels, heightmap_n, elev);
+    
+    // TODO Add option for this
+    if (elev < 0.2) heightColor = heightmap_levels[0].color;
 
     fill_convex_poly(&image, poly, n, heightColor);
   }
@@ -1842,6 +1829,6 @@ void DrawVoronoiMap(MapData *map, int with_lines) {
 
   // Sites on top
   for (int i = 0; i < map->nc; i++) {
-    DrawCircleV(map->c[i].pos, 3, BLACK);
+    DrawCircleV(map->c[i].pos, 2, BLACK);
   }
 }

@@ -14,7 +14,7 @@ int main(void) {
 
   Params params = {
     .map_size = (Vector2){800, 800},
-    .n_sites = 5000,
+    .n_sites = 10000,
     .relax = 2,
   };
 
