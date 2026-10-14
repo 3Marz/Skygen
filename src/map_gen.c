@@ -1,110 +1,33 @@
-#include <raylib.h>
+#include "map_gen.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include "utils.c"
+#include "heightmap_tools.c"
 
-/* Capacity of the per-vertex adjacency arrays. Must exceed the largest
- * Delaunay degree / Voronoi-vertex degree in the map; overflow is counted in
- * MapData.clamped instead of corrupting memory. */
-#define MAXN 64
-
-const GradientStop heightmap_levels[] = {
-  { 0.20f,  {50, 50, 200, 255} },
-  { 0.21f,  {105, 189, 169, 255} },
+/* Height colour ramp used by genVoronoiImage(). */
+static const GradientStop heightmap_levels[] = {
+  { 0.19f,  {50, 50, 200, 255} },
+  { 0.20f,  {105, 189, 169, 255} },
   { 0.50f,  {221, 247, 114, 255} },
   { 0.90f,  {219, 94, 66, 255} },
   { 1.01f,  {219, 48, 48, 255} }
 };
-const int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
-
-typedef struct HullEdge HullEdge; /* recursion scratch, defined below */
-
-typedef struct {
-  Vector2 map_size; /* map rectangle in pixels */
-  int n_sites;      /* number of polygon centers to seed */
-  int relax;        /* Lloyd relaxation iterations (0 = none) */
-} Params;
-
-/* A site (polygon center). neigh/edges/corners describe its cell. */
-typedef struct {
-  Vector2 pos;
-  int border, water, ocean, coast, biome;
-  float elevation, moisture;    /* map elevation 0-100 and moisture */
-  int nneigh, neigh[MAXN];      /* neighbouring centers sharing a visible border
-                                 * inside the map (the map's Voronoi graph).    */
-  /* All Delaunay neighbours, including those whose shared Voronoi edge fell
-   * outside the map. Only point_in_cell() needs these: a clipped cell is the
-   * intersection of the half-planes of its VISIBLE neighbours, but a rectangle
-   * corner can still sit on the wrong side of an off-map bisector, so the full
-   * set is required to test corners exactly. */
-  int nfneigh, fneigh[MAXN];
-  int nedges, edges[MAXN];      /* edges bordering this polygon             */
-  int ncorners, corners[MAXN];  /* polygon corners, sorted by angle         */
-} Center;
-
-/* A Voronoi vertex / Delaunay triangle ("blue point").
- * touches are the centers meeting here, prot the edges leaving this corner and
- * adj the neighbouring corners. The degree of a Voronoi vertex is unbounded
- * (border corners, cocircular hubs), so these are MAXN-capped, not [3]. */
-typedef struct {
-  Vector2 pos;
-  int border, water, ocean, coast, river, downslope;
-  float elevation, moisture;
-  int ntouch, touches[MAXN];    /* the centers meeting here                 */
-  int nadj, adj[MAXN];          /* adjacent corners (Voronoi edges)         */
-  int nprot, prot[MAXN];        /* edges leaving this corner                */
-} Corner;
-
-/* One edge knows both graphs: two centers (d0,d1) and two corners (v0,v1) */
-typedef struct {
-  int d0, d1, v0, v1;
-  int river;
-  Vector2 mid;
-} Edge;
-
-typedef struct {
-  int nc, nq, ne;
-  Center *c;
-  Corner *q;
-  Edge *e;
-  float spacing;                /* average distance between centers         */
-  /* polyline (v0 .. v1) of every edge, straight or noisy */
-  Vector2 *pool;
-  int poolN, poolCap;
-  int *pstart, *plen;
-
-  /* Working state, not part of the map graph */
-  Vector2 texture_size;
-  int *tris;                    /* Delaunay triangles (CCW site triples)   */
-  int n_tris, cap_tris;
-  int cap_c;                    /* allocated capacity of c[]              */
-  HullEdge **howned;            /* recursion scratch rings, for cleanup   */
-  int n_howned, cap_howned;
-  int clamped;                  /* adjacencies dropped because of MAXN      */
-  int *eidx;                    /* directed-edge -> triangle hash, -1/-2   */
-  unsigned long long *ekey;
-  int eicap, eitomb;
-  int ecap;                     /* capacity of e[]                          */
-
-  /* Cached rendering. Rebuilt only when the map changes, since filling and
-   * uploading every frame is pure waste for a static map. */
-  Texture2D tex;
-  int dirty;
-} MapData;
+static const int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
 
 /* -------------------------------------------------------------------------
  * Internal hull edges. The recursion walks convex hull rings; the public Edge
- * above is the output record and carries no links.
+ * record (map_gen.h) is the output and carries no links.
  * ---------------------------------------------------------------------- */
 
-typedef struct HullEdge {
+struct HullEdge {
   int org, dest; // Origin and destination site indices
   struct HullEdge *next, *prev; // Next/previous edge on the hull ring (CCW)
   struct HullEdge *opposite;    // Opposite half-edge (2-point case only)
   int idx;                      // Creation index (debug)
-} HullEdge;
+};
 
 /* Divide-and-conquer Delaunay triangulation (Lee/Preparata - Guibas/Stolfi style).
  * Centers must be sorted by x (then y). triangulate() handles centers[start, end)
@@ -583,7 +506,7 @@ static void merge_triangulations(MapData *map, HullEdge *left_hull, HullEdge *ri
 	free(ring);
 }
 
-void triangulate(MapData *map, int start, int end, HullEdge **left_e, HullEdge **right_e) {
+static void triangulate(MapData *map, int start, int end, HullEdge **left_e, HullEdge **right_e) {
   *left_e = NULL;
   *right_e = NULL;
   int n = end - start;
@@ -675,6 +598,8 @@ MapData *initVoronoiMap(Params p) {
 
   map->tex = (Texture2D){ 0 };
   map->dirty = 1;
+
+  map->blob_power = 0.98f;
 
   return map;
 }
@@ -1643,59 +1568,12 @@ void relaxVoronoiMap(MapData *map, int iterations) {
 void genHightmap(MapData *map) {
 
   for (int i = 0; i < map->nc; i++) {
-    map->c[i].elevation = 0; // Base height (ocean)
+    map->c[i].elevation = 50; // Base height (ocean)
   }
-
-  float blob_power = 0.98f;
 
   // Add hill
-  int n_hill = 2;
-  int hill_h[] = { 40, 80 }, 
-      hill_x[] = { 50, map->texture_size.x-50 },
-      hill_y[] = { 50, map->texture_size.y-50 };
-
-  for (int i = 0; i < n_hill; i++) {
-
-    int change[map->nc];
-    memset(change, 0, sizeof(change));
-    int start;
-    int limit = 0;
-    int h = GetRandomValue(hill_h[0], hill_h[1]);
-
-    do {
-      Vector2 randPos = { GetRandomValue(hill_x[0], hill_x[1]), GetRandomValue(hill_y[0], hill_y[1]) };
-      start = getClosestCenterIndex(map, randPos);
-      limit++;
-    } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
-    if (start < 0) start = 0; /* no centers at all; keep the index valid */
-
-    change[start] = h;
-    IntArray queue; 
-    int_array_init(&queue, 1);
-    int_array_push(&queue, start);
-    while (queue.size > 0) {
-      int q;
-      int_array_shift(&queue, &q);
-
-      for (int ni = 0; ni < map->c[q].nneigh; ni++) {
-        int n = map->c[q].neigh[ni];
-        if (change[n]) continue;
-        float r = (float)GetRandomValue(0, 1000000) / 1000000.0f;
-        change[n] = pow(change[q], blob_power) * (r * 0.2f + 0.9f);
-        if (change[n] > 1.0f) int_array_push(&queue, n); 
-      }
-    }
-    int_array_free(&queue);
-
-    for (int j = 0; j < map->nc; j++) {
-      if (change[j]) {
-        map->c[j].elevation += change[j];
-        if (map->c[j].elevation > 100) map->c[j].elevation = 100;
-      }
-    }
-
-
-  }
+  // add_hills(map, (int[]){2, 3}, (int[]){40, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_pits(map, (int[]){1, 5}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }

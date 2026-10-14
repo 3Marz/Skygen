@@ -1,5 +1,5 @@
 // #include "open-simplex-noise.h"
-#include "map_gen.c"
+#include "map_gen.h"
 #include <math.h>
 #include <raylib.h>
 #include <stdio.h>

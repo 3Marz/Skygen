@@ -3,6 +3,17 @@
 #include <stdlib.h>
 #include <raylib.h>
 
+
+#ifndef UTILS_H 
+#define UTILS_H
+
+#define clamp(value, low, high) ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
+#define limit_h(value) clamp(value, 0, 100)
+
+float rnd() {
+  return (float)GetRandomValue(0, 1000000) / 1000000.0f;
+}
+
 typedef struct {
     int *data;
     size_t size;
@@ -109,7 +120,7 @@ Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, f
     return result;
 }
 
-
+#endif
 
 
 
