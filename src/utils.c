@@ -14,6 +14,22 @@ float rnd() {
   return (float)GetRandomValue(0, 1000000) / 1000000.0f;
 }
 
+typedef enum { T_INT, T_FLOAT, T_CHAR } DataType;
+
+void printv(void* data, DataType type) {
+    switch (type) {
+        case T_INT:
+            printf("Integer: %d\n", *(int*)data); // Cast to int* and dereference
+            break;
+        case T_FLOAT:
+            printf("Float: %.2f\n", *(float*)data); // Cast to float* and dereference
+            break;
+        case T_CHAR:
+            printf("Char: %c\n", *(char*)data); // Cast to char* and dereference
+            break;
+    }
+}
+
 typedef struct {
     int *data;
     size_t size;

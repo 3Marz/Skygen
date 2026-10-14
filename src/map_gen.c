@@ -599,7 +599,7 @@ MapData *initVoronoiMap(Params p) {
   map->tex = (Texture2D){ 0 };
   map->dirty = 1;
 
-  map->blob_power = 0.98f;
+  map->blob_power = 0.97f;
 
   return map;
 }
@@ -1573,7 +1573,7 @@ void genHightmap(MapData *map) {
 
   // Add hill
   // add_hills(map, (int[]){2, 3}, (int[]){40, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_pits(map, (int[]){1, 5}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
@@ -1683,7 +1683,7 @@ Image genVoronoiImage(MapData *map) {
     Color heightColor = get_percentage_gradient_color(heightmap_levels, heightmap_n, elev);
     
     // TODO Add option for this
-    if (elev < 0.2) heightColor = heightmap_levels[0].color;
+    // if (elev < 0.2) heightColor = heightmap_levels[0].color;
 
     fill_convex_poly(&image, poly, n, heightColor);
   }
