@@ -14,6 +14,19 @@ float rnd() {
   return (float)GetRandomValue(0, 1000000) / 1000000.0f;
 }
 
+int rand_range(int range[]) {
+  return GetRandomValue(range[0], range[1]);
+}
+
+int array_includes(int arr[], int size, int target) {
+    for (int i = 0; i < size; i++) {
+        if (arr[i] == target) {
+            return 1; // Value found immediately
+        }
+    }
+    return 0; // Iterated through entire array without finding a match
+}
+
 typedef enum { T_INT, T_FLOAT, T_CHAR } DataType;
 
 void printv(void* data, DataType type) {
@@ -91,6 +104,14 @@ bool int_array_shift(IntArray *a, int *out_value) {
     }
     
     return true;
+}
+
+void int_array_print(IntArray *a) {
+    printf("[");
+    for (int i = 0; i < a->size; i++) {
+        printf("%d, ", a->data[i]);
+    }
+    printf("]\n");
 }
 
 void int_array_free(IntArray *a) {

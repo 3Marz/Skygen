@@ -1,5 +1,6 @@
 #include "map_gen.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,7 +10,8 @@
 
 /* Height colour ramp used by genVoronoiImage(). */
 static const GradientStop heightmap_levels[] = {
-  { 0.19f,  {50, 50, 200, 255} },
+  { 0.00f,  {90, 75, 150, 255} },
+  { 0.19f,  {69, 146, 163, 255} },
   { 0.20f,  {105, 189, 169, 255} },
   { 0.50f,  {221, 247, 114, 255} },
   { 0.90f,  {219, 94, 66, 255} },
@@ -1417,7 +1419,7 @@ int getClosestCenterIndex(MapData *map, Vector2 p) {
   /* dist2() returns a SQUARED distance, so the sentinel must be larger than
    * any possible one (max is width^2+height^2). The old value of
    * texture_size.x (~800) bailed out on points farther than ~28px from every
-   * center and returned -1, which genHightmap then used to index c[-1]. */
+   * center and returned -1, which genHeightmap then used to index c[-1]. */
   double minDist = 1e300;
   int minIndex = -1;
   for (int i = 0; i < map->nc; i++) {
@@ -1565,15 +1567,17 @@ void relaxVoronoiMap(MapData *map, int iterations) {
 }
 
 // Make Cell type either water, land, ocean
-void genHightmap(MapData *map) {
+void genHeightmap(MapData *map) {
 
   for (int i = 0; i < map->nc; i++) {
-    map->c[i].elevation = 50; // Base height (ocean)
+    map->c[i].elevation = 0; // Base height (ocean)
   }
 
   // Add hill
   // add_hills(map, (int[]){2, 3}, (int[]){40, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // // add_elevation(map, -20, true);
+  // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
@@ -1599,7 +1603,7 @@ void generateVoronoiMap(MapData *map, Params p) {
   triangulateMap(map);
   if (p.relax > 0) relaxVoronoiMap(map, p.relax);
 
-  genHightmap(map);
+  genHeightmap(map);
 }
 
 
