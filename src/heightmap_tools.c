@@ -20,7 +20,7 @@ void add_hills(MapData *map, int num[], int height[], int x[], int y[]) {
 
     do {
       Vector2 randPos = { rand_range(x), rand_range(y) };
-      start = getClosestCenterIndex(map, randPos);
+      start = get_closest_center_index(map, randPos);
       limit++;
     } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
     if (start < 0) start = 0; /* no centers at all; keep the index valid */
@@ -66,7 +66,7 @@ void add_pits(MapData *map, int num[], int height[], int x[], int y[]) {
 
     do {
       Vector2 randPos = { rand_range(x), rand_range(y) };
-      start = getClosestCenterIndex(map, randPos);
+      start = get_closest_center_index(map, randPos);
       limit++;
     } while (map->c[start].elevation < 20 && limit < 50);
     // if (start < 0) start = 0; /* no centers at all; keep the index valid */
@@ -105,6 +105,31 @@ void add_elevation(MapData *map, int value, int land_only) {
   }
 }
 
+IntArray *get_range(MapData *map, int cur, int end) {
+
+  IntArray *range;
+  int_array_init(range, 2);
+  int_array_push(range, cur);
+
+  float min_d = INFINITY;
+
+  while (cur != end) {
+    int next = -1;
+    for (int i = 0; i < map->c[cur].nneigh; i++) {
+      int n = map->c[cur].neigh[i];
+      float diff = Vector2Distance(map->c[n].pos, map->c[end].pos);
+      if (diff < min_d) {
+        min_d = diff;
+        next = n;
+      }
+    }
+    // if (next == -1) return;
+    int_array_push(range, next);
+    cur = next;
+  }
+
+  return range;
+}
 
 /* Raise mountain ranges: each one is a ridge walked across the graph for
  * `length` cells, tallest in the middle, then spread into its flanks with the
@@ -124,7 +149,7 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
 
     /* Ridge head: a random point inside the requested area. */
     Vector2 randPos = { rand_range(x), rand_range(y) };
-    int start = getClosestCenterIndex(map, randPos);
+    int start = get_closest_center_index(map, randPos);
     if (start < 0) continue;
 
     /* Walk the spine: at every step follow the neighbour that best continues
@@ -203,7 +228,56 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
   }
 }
 
+void add_strip(MapData *map, int w[], int horizontal) {
 
+  int start, end;
+
+  Vector2 start_pos = {
+    GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)),
+    0,
+  };
+  Vector2 end_pos = {
+    GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)),
+    map->texture_size.y,
+  };
+
+  start = get_closest_center_index(map, start_pos);
+  end = get_closest_center_index(map, end_pos);
+  
+  map->c[start].elevation = 90;
+  map->c[end].elevation = 90;
+
+  int cur = start;
+  IntArray range;
+  int_array_init(&range, 2);
+  int_array_push(&range, cur);
+
+  float min_d = INFINITY;
+
+  while (cur != end) {
+    int next = -1;
+    for (int i = 0; i < map->c[cur].nneigh; i++) {
+      int n = map->c[cur].neigh[i];
+      float diff = Vector2Distance(map->c[n].pos, map->c[end].pos);
+      if (diff < min_d) {
+        min_d = diff;
+        next = n;
+      }
+    }
+    if (next == -1) return;
+    int_array_push(&range, next);
+    cur = next;
+  }
+  
+  // int_array_print(&range);
+  for (int i = 0; i < range.size; i++) {
+    int c = range.data[i];
+    map->c[c].elevation = 80;
+  }
+
+  int_array_free(&range);
+  
+}
 
 
 

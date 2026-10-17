@@ -8,7 +8,7 @@
 #include "utils.c"
 #include "heightmap_tools.c"
 
-/* Height colour ramp used by genVoronoiImage(). */
+/* Height colour ramp used by gen_voronoi_image(). */
 static const GradientStop heightmap_levels[] = {
   { 0.00f,  {90, 75, 150, 255} },
   { 0.19f,  {69, 146, 163, 255} },
@@ -103,7 +103,7 @@ static HullEdge *new_hull(MapData *map, int org, int dest)
 }
 
 /* The hull rings are scratch space for one triangulation run. */
-static void freeHullEdges(MapData *map)
+static void free_hull_edges(MapData *map)
 {
 	for (int i = 0; i < map->n_howned; i++) free(map->howned[i]);
 	free(map->howned);
@@ -560,7 +560,7 @@ static void triangulate(MapData *map, int start, int end, HullEdge **left_e, Hul
   merge_triangulations(map, ll, rl, left_e, right_e);
 }
 
-MapData *initVoronoiMap(Params p) {
+MapData *init_voronoi_map(Params p) {
 
   MapData *map = malloc(sizeof(MapData));
   map->nc = p.n_sites > 0 ? p.n_sites : 0;
@@ -606,7 +606,7 @@ MapData *initVoronoiMap(Params p) {
   return map;
 }
 
-static void freeGraph(MapData *map)
+static void free_graph(MapData *map)
 {
 	free(map->q);
 	free(map->e);
@@ -626,15 +626,15 @@ static void freeGraph(MapData *map)
 	map->spacing = 0;
 }
 
-void freeVoronoiMap(MapData *map) {
+void free_voronoi_map(MapData *map) {
   if (!map) return;
   if (map->tex.id != 0) {
     UnloadTexture(map->tex);
     map->tex = (Texture2D){ 0 };
   }
-  freeGraph(map);
+  free_graph(map);
   edge_index_free(map);
-  freeHullEdges(map);
+  free_hull_edges(map);
   free(map->tris);
   free(map->c);
   free(map);
@@ -1227,12 +1227,12 @@ static void push_edge(MapData *map, int d0, int d1, int v0, int v1)
  *   one Edge per Delaunay edge, carrying both centers and both Voronoi corners,
  *   a synthetic border corner where a hull edge's dual ray meets the map rect.
  * Corner indices match triangle indices, so corner t belongs to triangle t. */
-static void buildVoronoiGraph(MapData *map)
+static void build_voronoi_graph(MapData *map)
 {
 	int n = map->nc;
 	float W = map->texture_size.x, H = map->texture_size.y;
 
-	freeGraph(map);
+	free_graph(map);
 
 	for (int i = 0; i < n; i++) {
 		Center *c = &map->c[i];
@@ -1351,11 +1351,11 @@ static void buildVoronoiGraph(MapData *map)
 }
 
 /* Triangulate the current centers and rebuild the whole Voronoi graph. */
-static void triangulateMap(MapData *map) {
+static void triangulate_map(MapData *map) {
   if (!map) return;
 
   map->dirty = 1; // cached texture no longer matches the geometry
-  freeHullEdges(map); // scratch from any previous run
+  free_hull_edges(map); // scratch from any previous run
 
   qsort(map->c, (size_t)map->nc, sizeof(Center), compare_sites);
 
@@ -1376,7 +1376,7 @@ static void triangulateMap(MapData *map) {
   map->n_tris = 0;
   map->clamped = 0;
   if (map->nc < 2) {
-    buildVoronoiGraph(map); // Still valid: 0-1 sites give trivial cells
+    build_voronoi_graph(map); // Still valid: 0-1 sites give trivial cells
     return;
   }
 
@@ -1390,7 +1390,7 @@ static void triangulateMap(MapData *map) {
   insert_missing_sites(map);
   lawson_flip_pass(map);
 
-  buildVoronoiGraph(map);
+  build_voronoi_graph(map);
 }
 
 /* Clip polygon against the half-plane dot(p - mid, nrm) <= 0. */
@@ -1415,11 +1415,11 @@ static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vecto
 	return nout;
 }
 
-int getClosestCenterIndex(MapData *map, Vector2 p) {
+int get_closest_center_index(MapData *map, Vector2 p) {
   /* dist2() returns a SQUARED distance, so the sentinel must be larger than
    * any possible one (max is width^2+height^2). The old value of
    * texture_size.x (~800) bailed out on points farther than ~28px from every
-   * center and returned -1, which genHeightmap then used to index c[-1]. */
+   * center and returned -1, which gen_heightmap then used to index c[-1]. */
   double minDist = 1e300;
   int minIndex = -1;
   for (int i = 0; i < map->nc; i++) {
@@ -1542,7 +1542,7 @@ static int cell_polygon(MapData *map, int ci, Vector2 *out, int cap)
 
 /* One Lloyd step: move every center to the centroid of its cell, then rebuild.
  * Evenly spreads the centers, which is what makes the cells map well. */
-static void relaxOnce(MapData *map)
+static void relax_one(MapData *map)
 {
 	int n = map->nc;
 	if (n <= 0) return;
@@ -1559,15 +1559,15 @@ static void relaxOnce(MapData *map)
 		map->c[i].pos = (Vector2){ (float)(sx / m), (float)(sy / m) };
 	}
 	free(buf);
-	triangulateMap(map);
+	triangulate_map(map);
 }
 
-void relaxVoronoiMap(MapData *map, int iterations) {
-  for (int i = 0; i < iterations; i++) relaxOnce(map);
+void relax_voronoi_map(MapData *map, int iterations) {
+  for (int i = 0; i < iterations; i++) relax_one(map);
 }
 
 // Make Cell type either water, land, ocean
-void genHeightmap(MapData *map) {
+void gen_heightmap(MapData *map) {
 
   for (int i = 0; i < map->nc; i++) {
     map->c[i].elevation = 0; // Base height (ocean)
@@ -1578,12 +1578,13 @@ void genHeightmap(MapData *map) {
   // // add_elevation(map, -20, true);
   // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
   add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_strip(map, (int[]){3, 5}, 0);
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
 
 /* Reseed the centers and rebuild the map, optionally relaxing afterwards. */
-void generateVoronoiMap(MapData *map, Params p) {
+void generate_voronoi_map(MapData *map, Params p) {
   if (!map) return;
 
   map->texture_size = p.map_size;
@@ -1600,10 +1601,10 @@ void generateVoronoiMap(MapData *map, Params p) {
                                 GetRandomValue(0, (int)p.map_size.y) };
   }
 
-  triangulateMap(map);
-  if (p.relax > 0) relaxVoronoiMap(map, p.relax);
+  triangulate_map(map);
+  if (p.relax > 0) relax_voronoi_map(map, p.relax);
 
-  genHeightmap(map);
+  gen_heightmap(map);
 }
 
 
@@ -1676,7 +1677,7 @@ static void fill_convex_poly(Image *img, const Vector2 *poly, int n, Color c)
 	}
 }
 
-Image genVoronoiImage(MapData *map) {
+Image gen_voronoi_image(MapData *map) {
   Image image = GenImageColor((int)map->texture_size.x, (int)map->texture_size.y, WHITE);
 
   int cap = 2 * (map->nc > 0 ? map->nc : 1) + 8;
@@ -1696,10 +1697,10 @@ Image genVoronoiImage(MapData *map) {
   return image;
 }
 
-Texture2D genVoronoiTexture(MapData *map) {
+Texture2D gen_voronoi_texture(MapData *map) {
   if (!map->dirty && map->tex.id != 0) return map->tex;
   if (map->tex.id != 0) UnloadTexture(map->tex);
-  Image img = genVoronoiImage(map);
+  Image img = gen_voronoi_image(map);
   map->tex = LoadTextureFromImage(img);
   UnloadImage(img);
   map->dirty = 0;
@@ -1708,8 +1709,8 @@ Texture2D genVoronoiTexture(MapData *map) {
 
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
-void DrawVoronoiMap(MapData *map, int with_lines) {
-  DrawTextureEx(genVoronoiTexture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+void draw_voronoi_map(MapData *map, int with_lines) {
+  DrawTextureEx(gen_voronoi_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
 
   if (!with_lines) return;
 

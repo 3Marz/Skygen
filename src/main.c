@@ -19,8 +19,8 @@ int main(void) {
   };
 
   // Voronoi Map
-  MapData *v_map = initVoronoiMap(params);
-  generateVoronoiMap(v_map, params);
+  MapData *v_map = init_voronoi_map(params);
+  generate_voronoi_map(v_map, params);
 
   // struct osn_context *noise_ctx;
   // open_simplex_noise(GetRandomValue(0, 10000), &noise_ctx);
@@ -40,7 +40,7 @@ int main(void) {
   // bool isFP = false;
 
   // Map Texture
-  Texture2D mapTexture = genVoronoiTexture(v_map);
+  Texture2D mapTexture = gen_voronoi_texture(v_map);
 
   // Perlin noise
   // Texture2D noiseTexture = LoadTextureFromImage(v_map->noise_img);
@@ -80,8 +80,8 @@ int main(void) {
     }
 
     if (regenerate) {
-      generateVoronoiMap(v_map, params);
-      mapTexture = genVoronoiTexture(v_map);
+      generate_voronoi_map(v_map, params);
+      mapTexture = gen_voronoi_texture(v_map);
       regenerate = 0;
     }
 
@@ -114,7 +114,7 @@ int main(void) {
 
       // DrawTextureEx(mapTexture, (Vector2){0.0f, 0.0f}, 0.0f, 0.7f, WHITE);
       // DrawTextureEx(noiseTexture, (Vector2){750.0f, 0.0f}, 0.0f, 0.3f, WHITE);
-      DrawVoronoiMap(v_map, 0);
+      draw_voronoi_map(v_map, 0);
       
 
       // int cn = 50;
@@ -133,7 +133,7 @@ int main(void) {
 
   UnloadTexture(mapTexture);
 
-  freeVoronoiMap(v_map);
+  free_voronoi_map(v_map);
 
   CloseWindow();
 
