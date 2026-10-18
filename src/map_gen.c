@@ -1419,7 +1419,7 @@ int get_closest_center_index(MapData *map, Vector2 p) {
   /* dist2() returns a SQUARED distance, so the sentinel must be larger than
    * any possible one (max is width^2+height^2). The old value of
    * texture_size.x (~800) bailed out on points farther than ~28px from every
-   * center and returned -1, which gen_heightmap then used to index c[-1]. */
+   * center and returned -1, which generate_heightmap then used to index c[-1]. */
   double minDist = 1e300;
   int minIndex = -1;
   for (int i = 0; i < map->nc; i++) {
@@ -1567,7 +1567,7 @@ void relax_voronoi_map(MapData *map, int iterations) {
 }
 
 // Make Cell type either water, land, ocean
-void gen_heightmap(MapData *map) {
+void generate_heightmap(MapData *map) {
 
   for (int i = 0; i < map->nc; i++) {
     map->c[i].elevation = 0; // Base height (ocean)
@@ -1575,10 +1575,10 @@ void gen_heightmap(MapData *map) {
 
   // Add hill
   // add_hills(map, (int[]){2, 3}, (int[]){40, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // // add_elevation(map, -20, true);
+  add_elevation(map, 40, 0);
   // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_strip(map, (int[]){3, 5}, 0);
+  // add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_strip(map, (int[]){60, 100}, (int[]){0, 0}, 0);
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
@@ -1604,7 +1604,7 @@ void generate_voronoi_map(MapData *map, Params p) {
   triangulate_map(map);
   if (p.relax > 0) relax_voronoi_map(map, p.relax);
 
-  gen_heightmap(map);
+  generate_heightmap(map);
 }
 
 

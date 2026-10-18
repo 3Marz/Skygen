@@ -43,81 +43,69 @@ void printv(void* data, DataType type) {
     }
 }
 
+// Arrays
+
+#define INVALID_INDEX 0xffffffff
+
 typedef struct {
-    int *data;
-    size_t size;
-    size_t capacity;
+  size_t size;
+  size_t capacity;
+  int *data;
 } IntArray;
 
-void int_array_init(IntArray *a, size_t initial_capacity) {
-    a->data = malloc(initial_capacity * sizeof(int));
-    a->size = 0;
-    a->capacity = initial_capacity;
+IntArray int_array_new(size_t initial_capacity) {
+  IntArray arr = { 0 };
+  arr.size = 0;
+  arr.capacity = initial_capacity;
+  arr.data = calloc(arr.capacity, sizeof(int));
+  return arr;
 }
 
-void int_array_push(IntArray *a, int value) {
-    if (a->size >= a->capacity) {
-        a->capacity *= 2; // Double the capacity
-        a->data = realloc(a->data, a->capacity * sizeof(int)); //
-    }
-    a->data[a->size++] = value;
+int int_array_at(IntArray *arr, int idx) {
+  if (idx >= arr->size || idx >= arr->capacity) {
+    printf("Error: Accessing uninitialize memory on int array with size: %d, index:%i\n", arr->size, idx);
+    return INVALID_INDEX;
+  }
+  return arr->data[idx];
 }
 
-// 1. POP: Removes and returns the last element
-bool int_array_pop(IntArray *a, int *out_value) {
-    if (a->size == 0) {
-        return false; // Array is empty, nothing to pop
-    }
-    
-    // Grab the last element
-    *out_value = a->data[--a->size];
-    
-    // Optional Optimization: Shrink memory if capacity is largely wasted
-    if (a->size > 0 && a->size <= a->capacity / 4) {
-        a->capacity /= 2;
-        a->data = realloc(a->data, a->capacity * sizeof(int));
-    }
-    
-    return true;
+int int_array_push(IntArray *arr, int value) {
+  if (arr->size >= arr->capacity) {
+    arr->capacity *= 2;
+    arr->data = realloc(arr->data, arr->capacity * sizeof(int));
+  }
+  arr->data[arr->size++] = value;
 }
 
-// 2. SHIFT: Removes and returns the first element
-bool int_array_shift(IntArray *a, int *out_value) {
-    if (a->size == 0) {
-        return false; // Array is empty, nothing to shift
-    }
-    
-    // Grab the first element
-    *out_value = a->data[0];
-    
-    // Shift all remaining elements one slot to the left
-    for (size_t i = 1; i < a->size; i++) {
-        a->data[i - 1] = a->data[i];
-    }
-    
-    a->size--; // Decrease size tracker
-    
-    // Optional Optimization: Shrink memory if capacity is largely wasted
-    if (a->size > 0 && a->size <= a->capacity / 4) {
-        a->capacity /= 2;
-        a->data = realloc(a->data, a->capacity * sizeof(int));
-    }
-    
-    return true;
+int int_array_shift(IntArray *arr) {
+  if (arr->size <= 0) {
+    printf("Error: Cant shift on empty array");
+    return INVALID_INDEX;
+  }
+
+  int out = int_array_at(arr, 0);
+
+  for (int i = 0; i < arr->size; i++) {
+    arr->data[i] = arr->data[i+1];
+  }
+
+  arr->size--;
+  return out;
+}
+
+void int_array_free(IntArray *arr) {
+  free(arr->data);
+  arr->data = NULL;
+  arr->capacity = 0;
+  arr->size = 0;
 }
 
 void int_array_print(IntArray *a) {
     printf("[");
     for (int i = 0; i < a->size; i++) {
-        printf("%d, ", a->data[i]);
+        printf("%d, ", int_array_at(a, i));
     }
     printf("]\n");
-}
-
-void int_array_free(IntArray *a) {
-    free(a->data);
-    a->data = NULL;
-    a->size = a->capacity = 0;
 }
 
 // COLORS

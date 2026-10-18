@@ -105,7 +105,7 @@ void generate_voronoi_map(MapData *map, Params p);
 void relax_voronoi_map(MapData *map, int iterations);
 
 /* Recompute every cell's elevation from the random hills. */
-void gen_hightmap(MapData *map);
+void generate_heightmap(MapData *map);
 
 /* Index of the center nearest to p, or -1 if the map has no centers. */
 int get_closest_center_index(MapData *map, Vector2 p);

@@ -1,6 +1,7 @@
 #include <math.h>
 #include <raylib.h>
 #include <raymath.h>
+#include <stdio.h>
 #include <string.h>
 #include "map_gen.h"
 #include "utils.c"
@@ -26,12 +27,10 @@ void add_hills(MapData *map, int num[], int height[], int x[], int y[]) {
     if (start < 0) start = 0; /* no centers at all; keep the index valid */
 
     change[start] = h;
-    IntArray queue; 
-    int_array_init(&queue, 1);
+    IntArray queue = int_array_new(4); 
     int_array_push(&queue, start);
     while (queue.size > 0) {
-      int q;
-      int_array_shift(&queue, &q);
+      int q = int_array_shift(&queue);
 
       for (int ni = 0; ni < map->c[q].nneigh; ni++) {
         int n = map->c[q].neigh[ni];
@@ -71,12 +70,11 @@ void add_pits(MapData *map, int num[], int height[], int x[], int y[]) {
     } while (map->c[start].elevation < 20 && limit < 50);
     // if (start < 0) start = 0; /* no centers at all; keep the index valid */
 
-    IntArray queue; 
-    int_array_init(&queue, 1);
+    IntArray queue = int_array_new(4);
     int_array_push(&queue, start);
+
     while (queue.size > 0) {
-      int q;
-      int_array_shift(&queue, &q);
+      int q = int_array_shift(&queue);
 
       h = pow(h, map->blob_power) * (rnd() * 0.2f + 0.9f);
       // map->c[q].elevation = limit_h(map->c[q].elevation - h * (rnd() * 0.2f + 0.9f));
@@ -105,11 +103,13 @@ void add_elevation(MapData *map, int value, int land_only) {
   }
 }
 
-IntArray *get_range(MapData *map, int cur, int end) {
+IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int expand_width) {
 
-  IntArray *range;
-  int_array_init(range, 2);
-  int_array_push(range, cur);
+  IntArray range = int_array_new(4);
+  int_array_push(&range, cur);
+
+  int used[map->nc];
+  memset(&used, 0, sizeof(used));
 
   float min_d = INFINITY;
 
@@ -117,15 +117,39 @@ IntArray *get_range(MapData *map, int cur, int end) {
     int next = -1;
     for (int i = 0; i < map->c[cur].nneigh; i++) {
       int n = map->c[cur].neigh[i];
+      if (used[n]) continue;
+
       float diff = Vector2Distance(map->c[n].pos, map->c[end].pos);
-      if (diff < min_d) {
+      float c = diff;
+
+      if (rnd() > 1.0f - randomnes) {
+        c *= 0.5f;
+      }
+
+      if (c < min_d) {
         min_d = diff;
         next = n;
       }
     }
-    // if (next == -1) return;
-    int_array_push(range, next);
+
+    if (next == -1) return range;
+
+    int_array_push(&range, next);
+    used[next] = 1;
     cur = next;
+  }
+
+  int s_len = range.size * expand_width;
+  for (int i = 0; i < s_len; i++) {
+    int c = int_array_at(&range, i);
+    for (int j = 0; j < map->c[c].nneigh; j++) {
+      int n = map->c[c].neigh[j];
+      if (used[n]) continue;
+
+      int_array_push(&range, n);
+
+      used[n] = 1;
+    }
   }
 
   return range;
@@ -202,14 +226,14 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
      * ridge, not a hill. */
     float flank = 0.5f * map->blob_power;
     int maxdepth = 1 + len / 3;
-    IntArray queue;
-    int_array_init(&queue, 1);
+    IntArray queue = int_array_new(1);
     for (int k = 0; k < steps; k++) int_array_push(&queue, path[k]);
     for (int depth = 0; depth < maxdepth && queue.size > 0; depth++) {
       size_t level = queue.size; /* FIFO queue batched by ring = one BFS level */
       for (size_t e = 0; e < level; e++) {
-        int q;
-        int_array_shift(&queue, &q);
+
+        int q = int_array_shift(&queue);
+
         for (int ni = 0; ni < map->c[q].nneigh; ni++) {
           int n = map->c[q].neigh[ni];
           if (change[n]) continue;
@@ -228,7 +252,7 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
   }
 }
 
-void add_strip(MapData *map, int w[], int horizontal) {
+void add_strip(MapData *map, int height[], int width[], int horizontal) {
 
   int start, end;
 
@@ -243,37 +267,48 @@ void add_strip(MapData *map, int w[], int horizontal) {
 
   start = get_closest_center_index(map, start_pos);
   end = get_closest_center_index(map, end_pos);
-  
-  map->c[start].elevation = 90;
-  map->c[end].elevation = 90;
 
-  int cur = start;
-  IntArray range;
-  int_array_init(&range, 2);
-  int_array_push(&range, cur);
+  IntArray range = get_cell_range(map, start, end, 0.05f, rand_range(width));
+  int h = limit_h(rand_range(height));
 
-  float min_d = INFINITY;
+  int used[map->nc];
+  memset(&used, 0, sizeof(used));
+  IntArray queue = int_array_new(range.size);
 
-  while (cur != end) {
-    int next = -1;
-    for (int i = 0; i < map->c[cur].nneigh; i++) {
-      int n = map->c[cur].neigh[i];
-      float diff = Vector2Distance(map->c[n].pos, map->c[end].pos);
-      if (diff < min_d) {
-        min_d = diff;
-        next = n;
-      }
-    }
-    if (next == -1) return;
-    int_array_push(&range, next);
-    cur = next;
+  for (int i = 0; i < range.size; i++) {
+    int c = int_array_at(&range, i);
+    int hi = pow(h, map->blob_power) * (rnd() * 0.2f + 0.9f);
+    map->c[c].elevation = limit_h(map->c[c].elevation - hi * (rnd() * 0.2f + 0.9f));
+    int_array_push(&queue, c);
+    used[c] = 1;
   }
   
   // int_array_print(&range);
   for (int i = 0; i < range.size; i++) {
     int c = range.data[i];
-    map->c[c].elevation = 80;
   }
+
+  while (queue.size > 0) {
+    int q = int_array_shift(&queue);
+
+    h = pow(h, map->blob_power) * (rnd() * 0.2f + 0.9f);
+    // map->c[q].elevation = limit_h(map->c[q].elevation - h * (rnd() * 0.2f + 0.9f));
+    // used[q] = 1;
+    printf("%d\n", h);
+    // if (h < 1) continue;
+    
+    printf("Got here tho");
+
+    for (int ni = 0; ni < map->c[q].nneigh; ni++) {
+      int n = map->c[q].neigh[ni];
+      if (used[n]) continue;
+      map->c[n].elevation = limit_h(map->c[n].elevation + h * (rnd() * 0.2f + 0.9f));
+      used[n] = 1;
+      int_array_push(&queue, n); 
+    }
+  }
+
+  int_array_free(&queue);
 
   int_array_free(&range);
   
