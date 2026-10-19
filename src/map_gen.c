@@ -1576,9 +1576,10 @@ void generate_heightmap(MapData *map) {
 
   // Add hill
   // add_hills(map, (int[]){10, 15}, (int[]){30, 60}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_elevation(map, 30, 0);
+  add_elevation(map, 40, 0);
   // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
   // add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
   // add_strip(map, (int[]){30, 60}, (int[]){1, 3}, 0);
 

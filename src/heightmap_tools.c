@@ -124,11 +124,6 @@ IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int exp
 
       if (rnd() > 1.0f - randomnes) {
         c *= 0.8f;
-        // if(rnd() > 0.5f) {
-        //   c *= 0.8f;
-        // } else {
-        //   c *= 2.0f;
-        // }
       }
 
       if (c < min_d) {
@@ -174,69 +169,45 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
 
   for (int i = 0; i < n_range; i++) {
 
-    int len = rand_range(length);
+    // Getting the start, end and range
+    int len = rand_range(length) * map->spacing;
     if (len < 1) len = 1;
     if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
-    int peak = limit_h(rand_range(height));
+    int h = limit_h(rand_range(height));
 
     /* Ridge head: a random point inside the requested area. */
-    Vector2 randPos = { rand_range(x), rand_range(y) };
-    int start = get_closest_center_index(map, randPos);
-    if (start < 0) continue;
+    int start, end;
+    Vector2 start_pos = { rand_range(x), rand_range(y) };
 
-    /* Walk the spine: at every step follow the neighbour that best continues
-     * the current heading. The heading drifts a little so the range curves
-     * instead of coming out a ruler line. */
-    int path[len];
-    path[0] = start;
-    int steps = 1;
-    int cur = start;
-    float ang = rnd() * 2.0f * PI;
-    while (steps < len) {
-      ang += (rnd() - 0.5f) * 0.7f;
-      Vector2 dir = { cosf(ang), sinf(ang) };
+    float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
+    Vector2 move_vector = {
+      .x = (cos(dir_angle)) * len,
+      .y = (sin(dir_angle)) * len
+    };
 
-      int best = -1;
-      float bestDot = 0.3f; /* must still be a forward step */
-      for (int ni = 0; ni < map->c[cur].nneigh; ni++) {
-        int n = map->c[cur].neigh[ni];
-        Vector2 d = Vector2Subtract(map->c[n].pos, map->c[cur].pos);
-        float l = Vector2Length(d);
-        if (l < 1e-4f) continue;
-        float dot = (d.x * dir.x + d.y * dir.y) / l;
-        if (dot > bestDot) { bestDot = dot; best = n; }
-      }
-      if (best < 0) break; /* ran off the graph */
+    Vector2 end_pos = Vector2Add(start_pos, move_vector);
 
-      int seen = 0;
-      for (int k = 0; k < steps; k++) if (path[k] == best) { seen = 1; break; }
-      if (seen) break; /* the heading folded back onto the spine */
+    start_pos = Vector2Clamp(start_pos, (Vector2){0, 0}, map->texture_size);
+    end_pos = Vector2Clamp(end_pos, (Vector2){0, 0}, map->texture_size);
 
-      path[steps++] = best;
-      cur = best;
+    start = get_closest_center_index(map, start_pos);
+    end = get_closest_center_index(map, end_pos);
+    if (start < 0 || end < 0) continue;
+
+    IntArray range = get_cell_range(map, start, end, 0.2f, 0);
+    IntArray queue = int_array_new(range.size);
+
+    int change[map->nc];
+    memset(&change, 0, sizeof(change));
+
+    for (int i = 0; i < range.size; i++) {
+      int c = int_array_at(&range, i);
+      change[c] = pow(h, map->blob_power) * (rnd() * 0.1f + 0.95f);;
+      int_array_push(&queue, c);
     }
 
-    /* Height along the spine: tallest in the middle, tapering at both ends so
-     * the range reads as a ridge and not a wall. */
-    float change[map->nc];
-    memset(change, 0, sizeof(change));
-    for (int k = 0; k < steps; k++) {
-      float t = steps > 1 ? (float)k / (float)(steps - 1) : 0.5f;
-      float profile = sinf(t * PI);
-      if (profile < 0.4f) profile = 0.4f;
-      change[path[k]] = (float)peak * profile;
-    }
-
-    /* Spread into the flanks: each ring keeps a fraction of the one before it,
-     * so the slope (and with it the range width) follows blob_power, the same
-     * knob the hills use. The spread is capped at a few rings so the slopes
-     * never grow wider than the spine is long - a range should read as a
-     * ridge, not a hill. */
-    float flank = 0.5f * map->blob_power;
-    int maxdepth = 1 + len / 3;
-    IntArray queue = int_array_new(1);
-    for (int k = 0; k < steps; k++) int_array_push(&queue, path[k]);
-    for (int depth = 0; depth < maxdepth && queue.size > 0; depth++) {
+    float flank = 0.6f * map->blob_power;
+    while (queue.size > 0) {
       size_t level = queue.size; /* FIFO queue batched by ring = one BFS level */
       for (size_t e = 0; e < level; e++) {
 
@@ -246,15 +217,83 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
           int n = map->c[q].neigh[ni];
           if (change[n]) continue;
           change[n] = change[q] * flank * (rnd() * 0.1f + 0.95f);
-          if (change[n] > 1.0f) int_array_push(&queue, n);
+          if (change[n] > 1) int_array_push(&queue, n);
         }
       }
     }
     int_array_free(&queue);
+    
+    for (int i = 0; i < map->nc; i++) {
+      if (change[i]){
+        map->c[i].elevation = limit_h(map->c[i].elevation + change[i]);
+      }
+    }
+  }
+}
 
-    for (int j = 0; j < map->nc; j++) {
-      if (change[j]) {
-        map->c[j].elevation = limit_h(map->c[j].elevation + change[j]);
+void add_through_range(MapData *map, int num[], int length[], int height[], int x[], int y[]) {
+
+  int n_range = rand_range(num);
+
+  for (int i = 0; i < n_range; i++) {
+
+    // Getting the start, end and range
+    int len = rand_range(length) * map->spacing;
+    if (len < 1) len = 1;
+    if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
+    int h = limit_h(rand_range(height));
+
+    /* Ridge head: a random point inside the requested area. */
+    int start, end;
+    Vector2 start_pos = { rand_range(x), rand_range(y) };
+
+    float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
+    Vector2 move_vector = {
+      .x = (cos(dir_angle)) * len,
+      .y = (sin(dir_angle)) * len
+    };
+
+    Vector2 end_pos = Vector2Add(start_pos, move_vector);
+
+    start_pos = Vector2Clamp(start_pos, (Vector2){0, 0}, map->texture_size);
+    end_pos = Vector2Clamp(end_pos, (Vector2){0, 0}, map->texture_size);
+
+    start = get_closest_center_index(map, start_pos);
+    end = get_closest_center_index(map, end_pos);
+    if (start < 0 || end < 0) continue;
+
+    IntArray range = get_cell_range(map, start, end, 0.2f, 0);
+    IntArray queue = int_array_new(range.size);
+
+    int change[map->nc];
+    memset(&change, 0, sizeof(change));
+
+    for (int i = 0; i < range.size; i++) {
+      int c = int_array_at(&range, i);
+      change[c] = pow(h, map->blob_power) * (rnd() * 0.1f + 0.95f);;
+      int_array_push(&queue, c);
+    }
+
+    float flank = 0.5f * map->blob_power;
+    while (queue.size > 0) {
+      size_t level = queue.size; /* FIFO queue batched by ring = one BFS level */
+      for (size_t e = 0; e < level; e++) {
+
+        int q = int_array_shift(&queue);
+
+        for (int ni = 0; ni < map->c[q].nneigh; ni++) {
+          int n = map->c[q].neigh[ni];
+          if (change[n]) continue;
+          change[n] = change[q] * flank * (rnd() * 0.1f + 0.95f);
+          if (change[n] > 1) int_array_push(&queue, n);
+        }
+      }
+    }
+    int_array_free(&queue);
+    
+    for (int i = 0; i < map->nc; i++) {
+      if (change[i]){
+        map->c[i].elevation = limit_h(map->c[i].elevation - change[i]);
       }
     }
   }
