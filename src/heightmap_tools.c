@@ -117,13 +117,18 @@ IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int exp
     int next = -1;
     for (int i = 0; i < map->c[cur].nneigh; i++) {
       int n = map->c[cur].neigh[i];
-      if (used[n]) continue;
+      if (used[n] && min_d != INFINITY) continue;
 
       float diff = Vector2Distance(map->c[n].pos, map->c[end].pos);
       float c = diff;
 
       if (rnd() > 1.0f - randomnes) {
-        c *= 0.5f;
+        c *= 0.8f;
+        // if(rnd() > 0.5f) {
+        //   c *= 0.8f;
+        // } else {
+        //   c *= 2.0f;
+        // }
       }
 
       if (c < min_d) {
@@ -132,11 +137,19 @@ IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int exp
       }
     }
 
-    if (next == -1) return range;
+    if (next == -1) {
+      // return range;
+      min_d = INFINITY;
+      for (int i = 0; i < map->c[cur].nneigh; i++) {
+        int n = map->c[cur].neigh[i];
+        used[n] = 0;
+      }
+    } else {
+      int_array_push(&range, next);
+      used[next] = 1;
+      cur = next;
+    }
 
-    int_array_push(&range, next);
-    used[next] = 1;
-    cur = next;
   }
 
   int s_len = range.size * expand_width;
@@ -155,12 +168,7 @@ IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int exp
   return range;
 }
 
-/* Raise mountain ranges: each one is a ridge walked across the graph for
- * `length` cells, tallest in the middle, then spread into its flanks with the
- * same falloff the hills use. */
 void add_mount_range(MapData *map, int num[], int length[], int height[], int x[], int y[]) {
-
-  if (map->nc <= 0) return;
 
   int n_range = rand_range(num);
 
@@ -255,63 +263,55 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
 void add_strip(MapData *map, int height[], int width[], int horizontal) {
 
   int start, end;
+  Vector2 start_pos, end_pos = { 0 };
 
-  Vector2 start_pos = {
-    GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)),
-    0,
-  };
-  Vector2 end_pos = {
-    GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)),
-    map->texture_size.y,
-  };
+  if (horizontal) {
+    start_pos = (Vector2){ 0,                   GetRandomValue((int)(map->texture_size.y/4), (int)(map->texture_size.y*3/4)) };
+    end_pos   = (Vector2){ map->texture_size.x, GetRandomValue((int)(map->texture_size.y/4), (int)(map->texture_size.y*3/4)) };
+  } else {
+    start_pos = (Vector2){ GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)), 0                   };
+    end_pos   = (Vector2){ GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)), map->texture_size.y };
+  }
 
   start = get_closest_center_index(map, start_pos);
   end = get_closest_center_index(map, end_pos);
 
-  IntArray range = get_cell_range(map, start, end, 0.05f, rand_range(width));
-  int h = limit_h(rand_range(height));
-
-  int used[map->nc];
-  memset(&used, 0, sizeof(used));
+  IntArray range = get_cell_range(map, start, end, 0.1f, rand_range(width));
   IntArray queue = int_array_new(range.size);
+
+  int h = limit_h(rand_range(height));
+  int change[map->nc];
+  memset(&change, 0, sizeof(change));
 
   for (int i = 0; i < range.size; i++) {
     int c = int_array_at(&range, i);
-    int hi = pow(h, map->blob_power) * (rnd() * 0.2f + 0.9f);
-    map->c[c].elevation = limit_h(map->c[c].elevation - hi * (rnd() * 0.2f + 0.9f));
+    change[c] = pow(h, map->blob_power) * (rnd() * 0.1f + 0.95f);;
     int_array_push(&queue, c);
-    used[c] = 1;
-  }
-  
-  // int_array_print(&range);
-  for (int i = 0; i < range.size; i++) {
-    int c = range.data[i];
   }
 
+  float flank = 0.5f * map->blob_power;
   while (queue.size > 0) {
-    int q = int_array_shift(&queue);
+    size_t level = queue.size; /* FIFO queue batched by ring = one BFS level */
+    for (size_t e = 0; e < level; e++) {
 
-    h = pow(h, map->blob_power) * (rnd() * 0.2f + 0.9f);
-    // map->c[q].elevation = limit_h(map->c[q].elevation - h * (rnd() * 0.2f + 0.9f));
-    // used[q] = 1;
-    printf("%d\n", h);
-    // if (h < 1) continue;
-    
-    printf("Got here tho");
+      int q = int_array_shift(&queue);
 
-    for (int ni = 0; ni < map->c[q].nneigh; ni++) {
-      int n = map->c[q].neigh[ni];
-      if (used[n]) continue;
-      map->c[n].elevation = limit_h(map->c[n].elevation + h * (rnd() * 0.2f + 0.9f));
-      used[n] = 1;
-      int_array_push(&queue, n); 
+      for (int ni = 0; ni < map->c[q].nneigh; ni++) {
+        int n = map->c[q].neigh[ni];
+        if (change[n]) continue;
+        change[n] = change[q] * flank * (rnd() * 0.1f + 0.95f);
+        if (change[n] > 1) int_array_push(&queue, n);
+      }
+    }
+  }
+  int_array_free(&queue);
+  
+  for (int i = 0; i < map->nc; i++) {
+    if (change[i]){
+      map->c[i].elevation = limit_h(map->c[i].elevation - change[i]);
     }
   }
 
-  int_array_free(&queue);
-
-  int_array_free(&range);
-  
 }
 
 

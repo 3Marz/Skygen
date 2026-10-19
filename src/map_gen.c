@@ -1568,17 +1568,19 @@ void relax_voronoi_map(MapData *map, int iterations) {
 
 // Make Cell type either water, land, ocean
 void generate_heightmap(MapData *map) {
+  if (map->nc <= 0) return;
 
   for (int i = 0; i < map->nc; i++) {
     map->c[i].elevation = 0; // Base height (ocean)
   }
 
   // Add hill
-  // add_hills(map, (int[]){2, 3}, (int[]){40, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_elevation(map, 40, 0);
+  // add_hills(map, (int[]){10, 15}, (int[]){30, 60}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_elevation(map, 30, 0);
   // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_strip(map, (int[]){60, 100}, (int[]){0, 0}, 0);
+  add_mount_range(map, (int[]){1, 1}, (int[]){30, 60}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
+  // add_strip(map, (int[]){30, 60}, (int[]){1, 3}, 0);
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
