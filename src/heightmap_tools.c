@@ -2,6 +2,7 @@
 #include <raylib.h>
 #include <raymath.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "map_gen.h"
 #include "utils.c"
@@ -100,6 +101,45 @@ void add_elevation(MapData *map, int value, int land_only) {
   for (int i = 0; i < map->nc; i++) {
     if (land_only && map->c[i].elevation < 20) continue;
     map->c[i].elevation = limit_h(map->c[i].elevation + value);
+  }
+}
+
+void multiply_elevation(MapData *map, float value, int height_mask[]) {
+  for (int i = 0; i < map->nc; i++) {
+    int h = map->c[i].elevation;
+    if (h >= height_mask[0] && h <= height_mask[1]) {
+      map->c[i].elevation = limit_h(map->c[i].elevation * value);
+    }
+  }
+}
+
+void mask_elevation(MapData *map, float power) {
+    float abs_power = fabsf(power);
+    float fr = (abs_power != 0.0f) ? abs_power : 1.0f;
+
+    for (int i = 0; i < map->nc; i++) {
+        float h = map->c[i].elevation;
+        Vector2 pos = map->c[i].pos;
+
+        // Normalized coordinates: [-1, 1], where 0 is the center
+        float nx = (2.0f * pos.x) / map->texture_size.x - 1.0f;
+        float ny = (2.0f * pos.y) / map->texture_size.y - 1.0f;
+
+        // 1 is center, 0 is edge
+        float dist = (1.0f - (nx * nx)) * (1.0f - (ny * ny));
+
+        // Invert if power is negative (0 is center, 1 is edge)
+        if (power < 0) dist = 1.0f - dist;
+
+        float masked = h * dist;
+
+        map->c[i].elevation = limit_h((h * (fr - 1.0f) + masked) / fr);
+    }
+}
+
+void invert_elevation(MapData *map, int rate) {
+  for (int i = 0; i < map->nc; i++) {
+    map->c[i].elevation = limit_h(rate - map->c[i].elevation);
   }
 }
 

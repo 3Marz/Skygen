@@ -1574,14 +1574,27 @@ void generate_heightmap(MapData *map) {
     map->c[i].elevation = 0; // Base height (ocean)
   }
 
-  // Add hill
-  // add_hills(map, (int[]){10, 15}, (int[]){30, 60}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_elevation(map, 40, 0);
+  //Normal Continent
+  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){20, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
+  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-20}, (int[]){50, map->texture_size.y-50});
+  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
+  multiply_elevation(map, 0.8, (int[]){80, 100});
+  mask_elevation(map, 1.5f);
+
+  //Invert Miss
+  // add_elevation(map, 40, 0);
+  // mask_elevation(map, 0.2f);
+  // add_hills(map, (int[]){10, 15}, (int[]){50, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
   // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
   // add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
-  // add_strip(map, (int[]){30, 60}, (int[]){1, 3}, 0);
+  // add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // multiply_elevation(map, 0.8, (int[]){20, 100});
+  // multiply_elevation(map, 0.7, (int[]){90, 100});
+  // invert_elevation(map, 80);
+
 
   map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
