@@ -143,6 +143,60 @@ void invert_elevation(MapData *map, int rate) {
   }
 }
 
+void slop_elevation(MapData *map, float power, int deg_angle) {
+    float abs_power = fabsf(power);
+    float fr = (abs_power != 0.0f) ? abs_power : 1.0f;
+
+    float angle = deg_angle * DEG2RAD;
+
+    Vector2 dir = {
+      .x = cosf(angle),
+      .y = sinf(angle)
+    };
+
+    for (int i = 0; i < map->nc; i++) {
+        float h = map->c[i].elevation;
+        Vector2 pos = map->c[i].pos;
+
+        // Normalized coordinates: [-1, 1], where 0 is the center
+        float nx = (2.0f * pos.x) / map->texture_size.x - 1.0f;
+        float ny = (2.0f * pos.y) / map->texture_size.y - 1.0f;
+
+        float proj = (nx * dir.x) + (ny * dir.y);
+        float dist = 0.5f * (proj + 1.0f);
+
+        // Invert if power is negative (0 is center, 1 is edge)
+        if (power < 0) dist = 1.0f - dist;
+
+        float masked = h * dist;
+
+        map->c[i].elevation = limit_h((h * (fr - 1.0f) + masked) / fr);
+    }
+}
+
+void smooth_elevation(MapData *map, int passes) {
+
+  for (int p = 0; p < passes; p++) {
+    int heights[map->nc];
+    memset(&heights, 0, sizeof(heights));
+
+    for (int c = 0; c < map->nc; c++) {
+      int avg = map->c[c].elevation;
+      for (int ni = 0; ni < map->c[c].nneigh; ni++) {
+        int n = map->c[c].neigh[ni];
+        avg += map->c[n].elevation;
+      }
+      avg = avg / (map->c[c].nneigh+1);
+
+      heights[c] = avg;
+    }
+
+    for (int i = 0; i < map->nc; i++) {
+      map->c[i].elevation = limit_h(heights[i]);
+    }
+  }
+}
+
 IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int expand_width) {
 
   IntArray range = int_array_new(4);

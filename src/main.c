@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 int main(void) {
-  const int screenWidth = 800;
+  const int screenWidth = 1200;
   const int screenHeight = 800;
 
   // SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -13,9 +13,9 @@ int main(void) {
   SetTargetFPS(60);
 
   Params params = {
-    .map_size = (Vector2){800, 800},
+    .map_size = (Vector2){1200, 800},
     .n_sites = 10000,
-    .relax = 2,
+    .relax = 1,
   };
 
   // Voronoi Map
