@@ -1,14 +1,8 @@
-#include <stdbool.h>
+#include "utils.h"
+
 #include <stdio.h>
-#include <stdlib.h>
 #include <raylib.h>
-
-
-#ifndef UTILS_H 
-#define UTILS_H
-
-#define clamp(value, low, high) ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
-#define limit_h(value) clamp(value, 0, 100)
+#include <stdlib.h>
 
 float rnd() {
   return (float)GetRandomValue(0, 1000000) / 1000000.0f;
@@ -27,7 +21,6 @@ int array_includes(int arr[], int size, int target) {
     return 0; // Iterated through entire array without finding a match
 }
 
-typedef enum { T_INT, T_FLOAT, T_CHAR } DataType;
 
 void printv(void* data, DataType type) {
     switch (type) {
@@ -45,14 +38,6 @@ void printv(void* data, DataType type) {
 
 // Arrays
 
-#define INVALID_INDEX 0xffffffff
-
-typedef struct {
-  size_t size;
-  size_t capacity;
-  int *data;
-} IntArray;
-
 IntArray int_array_new(size_t initial_capacity) {
   IntArray arr = { 0 };
   arr.size = 0;
@@ -63,13 +48,13 @@ IntArray int_array_new(size_t initial_capacity) {
 
 int int_array_at(IntArray *arr, int idx) {
   if (idx >= arr->size || idx >= arr->capacity) {
-    printf("Error: Accessing uninitialize memory on int array with size: %d, index:%i\n", arr->size, idx);
+    printf("Error: Accessing uninitialize memory on int array with size: %lu, index:%i\n", arr->size, idx);
     return INVALID_INDEX;
   }
   return arr->data[idx];
 }
 
-int int_array_push(IntArray *arr, int value) {
+void int_array_push(IntArray *arr, int value) {
   if (arr->size >= arr->capacity) {
     arr->capacity *= 2;
     arr->data = realloc(arr->data, arr->capacity * sizeof(int));
@@ -100,20 +85,15 @@ void int_array_free(IntArray *arr) {
   arr->size = 0;
 }
 
-void int_array_print(IntArray *a) {
+void int_array_print(IntArray *arr) {
     printf("[");
-    for (int i = 0; i < a->size; i++) {
-        printf("%d, ", int_array_at(a, i));
+    for (int i = 0; i < arr->size; i++) {
+        printf("%d, ", int_array_at(arr, i));
     }
     printf("]\n");
 }
 
 // COLORS
-
-typedef struct {
-  float threshold;
-  Color color;
-} GradientStop;
 
 Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, float ratio) {
     // Boundary protection
@@ -138,14 +118,9 @@ Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, f
 
     // Linear interpolation between the target colors
     Color result = ColorLerp(start_stop.color, end_stop.color, local_ratio);
-    // result.r = (uint8_t)(start_stop.color.r + (end_stop.color.r - start_stop.color.r) * local_ratio);
-    // result.g = (uint8_t)(start_stop.color.g + (end_stop.color.g - start_stop.color.g) * local_ratio);
-    // result.b = (uint8_t)(start_stop.color.b + (end_stop.color.b - start_stop.color.b) * local_ratio);
 
     return result;
 }
-
-#endif
 
 
 

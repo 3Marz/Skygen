@@ -1,3 +1,5 @@
+#include "map_gen_height.h"
+
 #include <math.h>
 #include <raylib.h>
 #include <raymath.h>
@@ -5,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "map_gen.h"
-#include "utils.c"
+#include "utils.h"
 
 
 void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
@@ -22,7 +24,7 @@ void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
 
     do {
       Vector2 randPos = { rand_range(x), rand_range(y) };
-      start = get_closest_center_index(map, randPos);
+      start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
     if (start < 0) start = 0; /* no centers at all; keep the index valid */
@@ -66,7 +68,7 @@ void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
 
     do {
       Vector2 randPos = { rand_range(x), rand_range(y) };
-      start = get_closest_center_index(map, randPos);
+      start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (map->c[start].elevation < 20 && limit < 50);
     // if (start < 0) start = 0; /* no centers at all; keep the index valid */
@@ -284,8 +286,8 @@ void add_mount_range(MapGraph *map, int num[], int length[], int height[], int x
     start_pos = Vector2Clamp(start_pos, (Vector2){0, 0}, map->texture_size);
     end_pos = Vector2Clamp(end_pos, (Vector2){0, 0}, map->texture_size);
 
-    start = get_closest_center_index(map, start_pos);
-    end = get_closest_center_index(map, end_pos);
+    start = map_graph_get_closest_center(map, start_pos);
+    end = map_graph_get_closest_center(map, end_pos);
     if (start < 0 || end < 0) continue;
 
     IntArray range = get_cell_range(map, start, end, 0.2f, 0);
@@ -352,8 +354,8 @@ void add_through_range(MapGraph *map, int num[], int length[], int height[], int
     start_pos = Vector2Clamp(start_pos, (Vector2){0, 0}, map->texture_size);
     end_pos = Vector2Clamp(end_pos, (Vector2){0, 0}, map->texture_size);
 
-    start = get_closest_center_index(map, start_pos);
-    end = get_closest_center_index(map, end_pos);
+    start = map_graph_get_closest_center(map, start_pos);
+    end = map_graph_get_closest_center(map, end_pos);
     if (start < 0 || end < 0) continue;
 
     IntArray range = get_cell_range(map, start, end, 0.2f, 0);
@@ -406,8 +408,8 @@ void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
     end_pos   = (Vector2){ GetRandomValue((int)(map->texture_size.x/4), (int)(map->texture_size.x*3/4)), map->texture_size.y };
   }
 
-  start = get_closest_center_index(map, start_pos);
-  end = get_closest_center_index(map, end_pos);
+  start = map_graph_get_closest_center(map, start_pos);
+  end = map_graph_get_closest_center(map, end_pos);
 
   IntArray range = get_cell_range(map, start, end, 0.1f, rand_range(width));
   IntArray queue = int_array_new(range.size);
@@ -447,9 +449,7 @@ void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
 
 }
 
-// Make Cell type either water, land, ocean
-void generate_heightmap(MapGraph *map) {
-  if (map->nc <= 0) return;
+void map_heights_assign(MapGraph *map) {
 
   for (int i = 0; i < map->nc; i++) {
     map->c[i].elevation = 0; // Base height (ocean)
@@ -478,8 +478,6 @@ void generate_heightmap(MapGraph *map) {
   // multiply_elevation(map, 0.8, (int[]){20, 100});
   // multiply_elevation(map, 0.7, (int[]){90, 100});
   // invert_elevation(map, 80);
-
 }
-
 
 

@@ -16,7 +16,7 @@ typedef struct {
   Vector2 map_size; /* map rectangle in pixels */
   int n_sites;      /* number of polygon centers to seed */
   int relax;        /* Lloyd relaxation iterations (0 = none) */
-} Params;
+} MapParams;
 
 /* A site (polygon center). neigh/edges/corners describe its cell. */
 typedef struct {
@@ -33,7 +33,7 @@ typedef struct {
   int nfneigh, fneigh[MAXN];
   int nedges, edges[MAXN];      /* edges bordering this polygon             */
   int ncorners, corners[MAXN];  /* polygon corners, sorted by angle         */
-} Center;
+} MapCenter;
 
 /* A Voronoi vertex / Delaunay triangle ("blue point").
  * touches are the centers meeting here, prot the edges leaving this corner and
@@ -46,20 +46,20 @@ typedef struct {
   int ntouch, touches[MAXN];    /* the centers meeting here                 */
   int nadj, adj[MAXN];          /* adjacent corners (Voronoi edges)         */
   int nprot, prot[MAXN];        /* edges leaving this corner                */
-} Corner;
+} MapCorner;
 
 /* One edge knows both graphs: two centers (d0,d1) and two corners (v0,v1) */
 typedef struct {
   int d0, d1, v0, v1;
   int river;
   Vector2 mid;
-} Edge;
+} MapEdge;
 
 typedef struct {
   int nc, nq, ne;
-  Center *c;
-  Corner *q;
-  Edge *e;
+  MapCenter *c;
+  MapCorner *q;
+  MapEdge *e;
   float spacing;                /* average distance between centers         */
   /* polyline (v0 .. v1) of every edge, straight or noisy */
   Vector2 *pool;
@@ -93,30 +93,30 @@ typedef struct {
 /* ------------------------------------------------------------------------- */
 
 /* Allocate an empty map sized for p and seed its centers. */
-MapGraph *init_voronoi_map(Params p);
+MapGraph *map_graph_init(MapParams p);
 
 /* Free the map and everything it owns. */
-void free_voronoi_map(MapGraph *map);
+void map_graph_free(MapGraph *map);
 
 /* Reseed the centers, triangulate, relax and generate the heightmap. */
-void generate_voronoi_map(MapGraph *map, Params p);
+void map_graph_generate(MapGraph *map, MapParams p);
 
 /* Run `iterations` Lloyd steps (moves centers to their cell centroids). */
-void relax_voronoi_map(MapGraph *map, int iterations);
+void map_graph_relax(MapGraph *map, int iterations);
 
 /* Recompute every cell's elevation from the random hills. */
-void generate_heightmap(MapGraph *map);
+void map_graph_generate_heightmap(MapGraph *map);
 
 /* Index of the center nearest to p, or -1 if the map has no centers. */
-int get_closest_center_index(MapGraph *map, Vector2 p);
+int map_graph_get_closest_center(MapGraph *map, Vector2 p);
 
 /* Rasterise the coloured map into a fresh Image (caller owns the data). */
-Image gen_voronoi_image(MapGraph *map);
+Image map_graph_generate_image(MapGraph *map);
 
 /* Upload genVoronoiImage() to a Texture2D (cached until the map changes). */
-Texture2D gen_voronoi_texture(MapGraph *map);
+Texture2D map_graph_generate_texture(MapGraph *map);
 
 /* Draw the cached map texture (optionally with cell outlines). */
-void draw_voronoi_map(MapGraph *map, int with_lines);
+void map_graph_draw(MapGraph *map, int with_lines);
 
 #endif /* SKYGEN_MAP_GEN_H */

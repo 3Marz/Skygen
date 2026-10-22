@@ -1,8 +1,5 @@
-// #include "open-simplex-noise.h"
 #include "map_gen.h"
-#include <math.h>
 #include <raylib.h>
-#include <stdio.h>
 
 int main(void) {
   const int screenWidth = 1200;
@@ -12,18 +9,18 @@ int main(void) {
   InitWindow(screenWidth, screenHeight, "SKYGEN");
   SetTargetFPS(60);
 
-  Params params = {
+  MapParams params = {
     .map_size = (Vector2){1200, 800},
     .n_sites = 10000,
     .relax = 1,
   };
 
   // Voronoi Map
-  MapGraph *v_map = init_voronoi_map(params);
-  generate_voronoi_map(v_map, params);
+  MapGraph *v_map = map_graph_init(params);
+  map_graph_generate(v_map, params);
 
   // Map Texture
-  Texture2D mapTexture = gen_voronoi_texture(v_map);
+  Texture2D mapTexture = map_graph_generate_texture(v_map);
 
   int regenerate = 0;
 
@@ -37,11 +34,11 @@ int main(void) {
 
     if (regenerate) {
       if (regenerate == 1) {
-        generate_voronoi_map(v_map, params);
+        map_graph_generate(v_map, params);
       } else if (regenerate == 2) {
-        generate_heightmap(v_map);
+        map_graph_generate_heightmap(v_map);
       }
-      mapTexture = gen_voronoi_texture(v_map);
+      mapTexture = map_graph_generate_texture(v_map);
       regenerate = 0;
     }
 
@@ -49,14 +46,14 @@ int main(void) {
     BeginDrawing();
     ClearBackground(RAYWHITE);
       
-      draw_voronoi_map(v_map, 0);
+      map_graph_draw(v_map, 0);
       
     EndDrawing();
   }
 
   UnloadTexture(mapTexture);
 
-  free_voronoi_map(v_map);
+  map_graph_free(v_map);
 
   CloseWindow();
 
