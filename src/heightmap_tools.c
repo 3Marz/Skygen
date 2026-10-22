@@ -8,7 +8,7 @@
 #include "utils.c"
 
 
-void add_hills(MapData *map, int num[], int height[], int x[], int y[]) {
+void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
 
   int n_hill = rand_range(num);
 
@@ -52,7 +52,7 @@ void add_hills(MapData *map, int num[], int height[], int x[], int y[]) {
   }
 }
 
-void add_pits(MapData *map, int num[], int height[], int x[], int y[]) {
+void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
 
   int n_pit = rand_range(num);
 
@@ -97,14 +97,14 @@ void add_pits(MapData *map, int num[], int height[], int x[], int y[]) {
 
 }
 
-void add_elevation(MapData *map, int value, int land_only) {
+void add_elevation(MapGraph *map, int value, int land_only) {
   for (int i = 0; i < map->nc; i++) {
     if (land_only && map->c[i].elevation < 20) continue;
     map->c[i].elevation = limit_h(map->c[i].elevation + value);
   }
 }
 
-void multiply_elevation(MapData *map, float value, int height_mask[]) {
+void multiply_elevation(MapGraph *map, float value, int height_mask[]) {
   for (int i = 0; i < map->nc; i++) {
     int h = map->c[i].elevation;
     if (h >= height_mask[0] && h <= height_mask[1]) {
@@ -113,7 +113,7 @@ void multiply_elevation(MapData *map, float value, int height_mask[]) {
   }
 }
 
-void mask_elevation(MapData *map, float power) {
+void mask_elevation(MapGraph *map, float power) {
     float abs_power = fabsf(power);
     float fr = (abs_power != 0.0f) ? abs_power : 1.0f;
 
@@ -137,13 +137,13 @@ void mask_elevation(MapData *map, float power) {
     }
 }
 
-void invert_elevation(MapData *map, int rate) {
+void invert_elevation(MapGraph *map, int rate) {
   for (int i = 0; i < map->nc; i++) {
     map->c[i].elevation = limit_h(rate - map->c[i].elevation);
   }
 }
 
-void slop_elevation(MapData *map, float power, int deg_angle) {
+void slop_elevation(MapGraph *map, float power, int deg_angle) {
     float abs_power = fabsf(power);
     float fr = (abs_power != 0.0f) ? abs_power : 1.0f;
 
@@ -174,7 +174,7 @@ void slop_elevation(MapData *map, float power, int deg_angle) {
     }
 }
 
-void smooth_elevation(MapData *map, int passes) {
+void smooth_elevation(MapGraph *map, int passes) {
 
   for (int p = 0; p < passes; p++) {
     int heights[map->nc];
@@ -197,7 +197,7 @@ void smooth_elevation(MapData *map, int passes) {
   }
 }
 
-IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int expand_width) {
+IntArray get_cell_range(MapGraph *map, int cur, int end, float randomnes, int expand_width) {
 
   IntArray range = int_array_new(4);
   int_array_push(&range, cur);
@@ -257,7 +257,7 @@ IntArray get_cell_range(MapData *map, int cur, int end, float randomnes, int exp
   return range;
 }
 
-void add_mount_range(MapData *map, int num[], int length[], int height[], int x[], int y[]) {
+void add_mount_range(MapGraph *map, int num[], int length[], int height[], int x[], int y[]) {
 
   int n_range = rand_range(num);
 
@@ -325,7 +325,7 @@ void add_mount_range(MapData *map, int num[], int length[], int height[], int x[
   }
 }
 
-void add_through_range(MapData *map, int num[], int length[], int height[], int x[], int y[]) {
+void add_through_range(MapGraph *map, int num[], int length[], int height[], int x[], int y[]) {
 
   int n_range = rand_range(num);
 
@@ -393,7 +393,7 @@ void add_through_range(MapData *map, int num[], int length[], int height[], int 
   }
 }
 
-void add_strip(MapData *map, int height[], int width[], int horizontal) {
+void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
 
   int start, end;
   Vector2 start_pos, end_pos = { 0 };
@@ -447,7 +447,39 @@ void add_strip(MapData *map, int height[], int width[], int horizontal) {
 
 }
 
+// Make Cell type either water, land, ocean
+void generate_heightmap(MapGraph *map) {
+  if (map->nc <= 0) return;
 
+  for (int i = 0; i < map->nc; i++) {
+    map->c[i].elevation = 0; // Base height (ocean)
+  }
+
+  //Normal Continent
+  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){20, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
+  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-20}, (int[]){50, map->texture_size.y-50});
+  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){50, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
+  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
+  multiply_elevation(map, 0.9, (int[]){80, 100});
+  mask_elevation(map, 1.5f);
+  // smooth_elevation(map, 1);
+  // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
+
+  //Invert Miss
+  // add_elevation(map, 40, 0);
+  // mask_elevation(map, 0.2f);
+  // add_hills(map, (int[]){10, 15}, (int[]){50, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
+  // multiply_elevation(map, 0.8, (int[]){20, 100});
+  // multiply_elevation(map, 0.7, (int[]){90, 100});
+  // invert_elevation(map, 80);
+
+}
 
 
 

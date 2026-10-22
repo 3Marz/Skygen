@@ -19,7 +19,7 @@ int main(void) {
   };
 
   // Voronoi Map
-  MapData *v_map = init_voronoi_map(params);
+  MapGraph *v_map = init_voronoi_map(params);
   generate_voronoi_map(v_map, params);
 
   // Map Texture

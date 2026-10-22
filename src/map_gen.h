@@ -86,37 +86,37 @@ typedef struct {
 
   // For heightmap
   float blob_power;
-} MapData;
+} MapGraph;
 
 /* ------------------------------------------------------------------------- */
 /* Public API                                                                 */
 /* ------------------------------------------------------------------------- */
 
 /* Allocate an empty map sized for p and seed its centers. */
-MapData *init_voronoi_map(Params p);
+MapGraph *init_voronoi_map(Params p);
 
 /* Free the map and everything it owns. */
-void free_voronoi_map(MapData *map);
+void free_voronoi_map(MapGraph *map);
 
 /* Reseed the centers, triangulate, relax and generate the heightmap. */
-void generate_voronoi_map(MapData *map, Params p);
+void generate_voronoi_map(MapGraph *map, Params p);
 
 /* Run `iterations` Lloyd steps (moves centers to their cell centroids). */
-void relax_voronoi_map(MapData *map, int iterations);
+void relax_voronoi_map(MapGraph *map, int iterations);
 
 /* Recompute every cell's elevation from the random hills. */
-void generate_heightmap(MapData *map);
+void generate_heightmap(MapGraph *map);
 
 /* Index of the center nearest to p, or -1 if the map has no centers. */
-int get_closest_center_index(MapData *map, Vector2 p);
+int get_closest_center_index(MapGraph *map, Vector2 p);
 
 /* Rasterise the coloured map into a fresh Image (caller owns the data). */
-Image gen_voronoi_image(MapData *map);
+Image gen_voronoi_image(MapGraph *map);
 
 /* Upload genVoronoiImage() to a Texture2D (cached until the map changes). */
-Texture2D gen_voronoi_texture(MapData *map);
+Texture2D gen_voronoi_texture(MapGraph *map);
 
 /* Draw the cached map texture (optionally with cell outlines). */
-void draw_voronoi_map(MapData *map, int with_lines);
+void draw_voronoi_map(MapGraph *map, int with_lines);
 
 #endif /* SKYGEN_MAP_GEN_H */

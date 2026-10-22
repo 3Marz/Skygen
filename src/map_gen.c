@@ -84,10 +84,10 @@ static double incircle(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
 
 /* Forward declarations (defined with the post-pass / graph helpers below). */
 static int point_in_tri(Vector2 p, Vector2 a, Vector2 b, Vector2 c);
-static void edge_index_free(MapData *map);
-static void edge_index_rebuild(MapData *map);
+static void edge_index_free(MapGraph *map);
+static void edge_index_rebuild(MapGraph *map);
 
-static HullEdge *new_hull(MapData *map, int org, int dest)
+static HullEdge *new_hull(MapGraph *map, int org, int dest)
 {
 	if (map->n_howned == map->cap_howned) {
 		map->cap_howned = map->cap_howned ? map->cap_howned * 2 : 64;
@@ -104,7 +104,7 @@ static HullEdge *new_hull(MapData *map, int org, int dest)
 }
 
 /* The hull rings are scratch space for one triangulation run. */
-static void free_hull_edges(MapData *map)
+static void free_hull_edges(MapGraph *map)
 {
 	for (int i = 0; i < map->n_howned; i++) free(map->howned[i]);
 	free(map->howned);
@@ -114,7 +114,7 @@ static void free_hull_edges(MapData *map)
 }
 
 /* Store triangle (a, b, c); enforces CCW order, drops degenerate (collinear) ones. */
-static void push_tri(MapData *map, int a, int b, int c)
+static void push_tri(MapGraph *map, int a, int b, int c)
 {
 	double o = orient2d(map->c[a].pos, map->c[b].pos, map->c[c].pos);
 	if (fabs(o) < 1e-9) return;
@@ -173,7 +173,7 @@ static int read_ring(HullEdge *start, int *out, int cap)
  * Correct selection: among all pairs with every site on the left, the tangent
  * minimizes the slope (steepest downward line that keeps everything above).
  * (Longest-valid is NOT the tangent: it can touch a hull off its lower chain.) */
-static void lower_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
+static void lower_tangent(MapGraph *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
 {
 	const double EPS = 1e-9;
 	int found = 0;
@@ -241,7 +241,7 @@ static void lower_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *b
 
 /* Upper common tangent, directed h2 -> h1 (right-to-left along the top).
  * Mirror image: among all pairs with every site on the left, maximize slope. */
-static void upper_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
+static void upper_tangent(MapGraph *map, int *h1, int n1, int *h2, int n2, int *bi, int *bj)
 {
 	const double EPS = 1e-9;
 	int found = 0;
@@ -312,7 +312,7 @@ static void upper_tangent(MapData *map, int *h1, int n1, int *h2, int n2, int *b
 /* Merge two adjacent triangulations: stitch the gap between the hulls with the
  * rising-bubble seam (cross triangles from the lower to the upper tangent),
  * then splice the hull rings. Both rings are CCW. */
-static void merge_triangulations(MapData *map, HullEdge *left_hull, HullEdge *right_hull,
+static void merge_triangulations(MapGraph *map, HullEdge *left_hull, HullEdge *right_hull,
                                  HullEdge **out_l, HullEdge **out_r)
 {
 	const double EPS = 1e-9;
@@ -509,7 +509,7 @@ static void merge_triangulations(MapData *map, HullEdge *left_hull, HullEdge *ri
 	free(ring);
 }
 
-static void triangulate(MapData *map, int start, int end, HullEdge **left_e, HullEdge **right_e) {
+static void triangulate(MapGraph *map, int start, int end, HullEdge **left_e, HullEdge **right_e) {
   *left_e = NULL;
   *right_e = NULL;
   int n = end - start;
@@ -561,9 +561,9 @@ static void triangulate(MapData *map, int start, int end, HullEdge **left_e, Hul
   merge_triangulations(map, ll, rl, left_e, right_e);
 }
 
-MapData *init_voronoi_map(Params p) {
+MapGraph *init_voronoi_map(Params p) {
 
-  MapData *map = malloc(sizeof(MapData));
+  MapGraph *map = malloc(sizeof(MapGraph));
   map->nc = p.n_sites > 0 ? p.n_sites : 0;
   map->texture_size = p.map_size;
 
@@ -607,7 +607,7 @@ MapData *init_voronoi_map(Params p) {
   return map;
 }
 
-static void free_graph(MapData *map)
+static void free_graph(MapGraph *map)
 {
 	free(map->q);
 	free(map->e);
@@ -627,7 +627,7 @@ static void free_graph(MapData *map)
 	map->spacing = 0;
 }
 
-void free_voronoi_map(MapData *map) {
+void free_voronoi_map(MapGraph *map) {
   if (!map) return;
   if (map->tex.id != 0) {
     UnloadTexture(map->tex);
@@ -662,11 +662,11 @@ static unsigned long long eg_pack(int a, int b)
 	return ((unsigned long long)(unsigned)a << 32) | (unsigned)b;
 }
 
-static void eg_compact(MapData *map, int force);
+static void eg_compact(MapGraph *map, int force);
 
 /* -1 is a never-used slot and ends a probe; -2 is a tombstone and does not,
  * so unlinking one key never orphans whatever sits behind it in the chain. */
-static void eg_add(MapData *map, unsigned long long k, int t)
+static void eg_add(MapGraph *map, unsigned long long k, int t)
 {
 	unsigned mask = (unsigned)map->eicap - 1;
 	unsigned h = eg_hash(k) & mask;
@@ -683,7 +683,7 @@ static void eg_add(MapData *map, unsigned long long k, int t)
 	map->ekey[h] = k;
 }
 
-static void eg_drop_key(MapData *map, unsigned long long k)
+static void eg_drop_key(MapGraph *map, unsigned long long k)
 {
 	unsigned mask = (unsigned)map->eicap - 1;
 	unsigned h = eg_hash(k) & mask;
@@ -700,7 +700,7 @@ static void eg_drop_key(MapData *map, unsigned long long k)
 /* Every Lawson flip unlinks as many keys as it links, and splitting edges
  * grows n_tris, so the table has to be able to re-pack and grow itself.
  * Sizing it once up front overflows it part-way through the repair. */
-static void eg_compact(MapData *map, int force)
+static void eg_compact(MapGraph *map, int force)
 {
 	if (!force && map->eitomb <= map->eicap / 8) return;
 	int old = map->eicap;
@@ -727,7 +727,7 @@ static void eg_compact(MapData *map, int force)
 	free(v);
 }
 
-static void edge_index_rebuild(MapData *map)
+static void edge_index_rebuild(MapGraph *map)
 {
 	int n = map->n_tris;
 	int cap = 32;
@@ -745,7 +745,7 @@ static void edge_index_rebuild(MapData *map)
 	}
 }
 
-static void edge_index_free(MapData *map)
+static void edge_index_free(MapGraph *map)
 {
 	free(map->eidx);
 	free(map->ekey);
@@ -756,20 +756,20 @@ static void edge_index_free(MapData *map)
 }
 
 /* Register / unregister one triangle's three directed edges. */
-static void eg_link(MapData *map, int t)
+static void eg_link(MapGraph *map, int t)
 {
 	int *tr = &map->tris[3 * t];
 	for (int e = 0; e < 3; e++) eg_add(map, eg_pack(tr[e], tr[(e + 1) % 3]), t);
 }
 
-static void eg_unlink(MapData *map, int t)
+static void eg_unlink(MapGraph *map, int t)
 {
 	int *tr = &map->tris[3 * t];
 	for (int e = 0; e < 3; e++) eg_drop_key(map, eg_pack(tr[e], tr[(e + 1) % 3]));
 }
 
 /* Find a partner triangle sharing the directed edge b -> a (i.e. we hold a -> b). */
-static int find_partner(MapData *map, int ti, int a, int b)
+static int find_partner(MapGraph *map, int ti, int a, int b)
 {
 	(void)ti;
 	if (!map->eidx) return -1;
@@ -785,7 +785,7 @@ static int find_partner(MapData *map, int ti, int a, int b)
 
 /* Split edge e of triangle t at site s, keeping the triangle on the far side
  * conforming, and keep the edge index in step. */
-static int split_edge_with_site(MapData *map, int t, int e, int s)
+static int split_edge_with_site(MapGraph *map, int t, int e, int s)
 {
 	int a = map->tris[3 * t + e];
 	int b = map->tris[3 * t + (e + 1) % 3];
@@ -860,7 +860,7 @@ typedef struct {
 
 /* Cell size ~ mean site spacing, so a cell holds about one site and a
  * typical triangle covers a handful of cells. */
-static void tg_geom(TriGrid *g, MapData *map)
+static void tg_geom(TriGrid *g, MapGraph *map)
 {
 	int n = map->nc;
 	g->W = map->texture_size.x;
@@ -872,7 +872,7 @@ static void tg_geom(TriGrid *g, MapData *map)
 	g->gh = (int)(g->H * g->inv_g) + 2;
 }
 
-static void tg_init(TriGrid *g, MapData *map)
+static void tg_init(TriGrid *g, MapGraph *map)
 {
 	tg_geom(g, map);
 	int ncells = g->gw * g->gh;
@@ -919,7 +919,7 @@ static void tg_push(TriGrid *g, int cell, int t)
 
 /* Register triangle t in every cell its bounding box touches. A site lying
  * anywhere inside t (or on one of its edges) therefore shares t's cell. */
-static void tg_push_tri(TriGrid *g, MapData *map, int t)
+static void tg_push_tri(TriGrid *g, MapGraph *map, int t)
 {
 	int *tr = &map->tris[3 * t];
 	float x0 = map->c[tr[0]].pos.x, x1 = x0;
@@ -942,7 +942,7 @@ static void tg_push_tri(TriGrid *g, MapData *map, int t)
 			tg_push(g, cy * g->gw + cx, t);
 }
 
-static void tg_add_all(TriGrid *g, MapData *map)
+static void tg_add_all(TriGrid *g, MapGraph *map)
 {
 	for (int t = 0; t < map->n_tris; t++) tg_push_tri(g, map, t);
 }
@@ -950,7 +950,7 @@ static void tg_add_all(TriGrid *g, MapData *map)
 /* The seam only walks hull chains, so a sub-hull vertex that ends up strictly
  * inside the merged hull (like a point in the "bay" between the halves) gets
  * no triangle. Insert every such site into its containing triangle. */
-static void insert_missing_sites(MapData *map)
+static void insert_missing_sites(MapGraph *map)
 {
 	const double EPS = 1e-9;
 	int n = map->nc;
@@ -1073,7 +1073,7 @@ static void insert_missing_sites(MapData *map)
 /* Lawson flip pass: repeatedly flip non-Delaunay interior diagonals until the
  * triangulation is Delaunay. A full sweep is done before rescanning; restarting
  * the O(T^2) partner scan after every flip made the pass cubic. */
-static void lawson_flip_pass(MapData *map)
+static void lawson_flip_pass(MapGraph *map)
 {
 	const double EPS = 1e-9;
 	int guard = 0;
@@ -1162,7 +1162,7 @@ static int clip_seg_rect(Vector2 p0, Vector2 p1, float W, float H, Vector2 *q0, 
 
 /* Append v to a capped unique list. Returns 1 when added, 0 when already
  * present; on overflow it counts the drop in map->clamped and returns 0. */
-static int add_unique(MapData *map, int *arr, int *n, int v)
+static int add_unique(MapGraph *map, int *arr, int *n, int v)
 {
 	for (int k = 0; k < *n; k++) {
 		if (arr[k] == v) return 0;
@@ -1175,7 +1175,7 @@ static int add_unique(MapData *map, int *arr, int *n, int v)
 	return 1;
 }
 
-static void pool_reserve(MapData *map, int need)
+static void pool_reserve(MapGraph *map, int need)
 {
 	if (need <= map->poolCap) return;
 	int cap = map->poolCap ? map->poolCap : 128;
@@ -1184,7 +1184,7 @@ static void pool_reserve(MapData *map, int need)
 	map->poolCap = cap;
 }
 
-static void push_edge(MapData *map, int d0, int d1, int v0, int v1)
+static void push_edge(MapGraph *map, int d0, int d1, int v0, int v1)
 {
 	float W = map->texture_size.x, H = map->texture_size.y;
 
@@ -1228,7 +1228,7 @@ static void push_edge(MapData *map, int d0, int d1, int v0, int v1)
  *   one Edge per Delaunay edge, carrying both centers and both Voronoi corners,
  *   a synthetic border corner where a hull edge's dual ray meets the map rect.
  * Corner indices match triangle indices, so corner t belongs to triangle t. */
-static void build_voronoi_graph(MapData *map)
+static void build_voronoi_graph(MapGraph *map)
 {
 	int n = map->nc;
 	float W = map->texture_size.x, H = map->texture_size.y;
@@ -1352,7 +1352,7 @@ static void build_voronoi_graph(MapData *map)
 }
 
 /* Triangulate the current centers and rebuild the whole Voronoi graph. */
-static void triangulate_map(MapData *map) {
+static void triangulate_map(MapGraph *map) {
   if (!map) return;
 
   map->dirty = 1; // cached texture no longer matches the geometry
@@ -1416,7 +1416,7 @@ static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vecto
 	return nout;
 }
 
-int get_closest_center_index(MapData *map, Vector2 p) {
+int get_closest_center_index(MapGraph *map, Vector2 p) {
   /* dist2() returns a SQUARED distance, so the sentinel must be larger than
    * any possible one (max is width^2+height^2). The old value of
    * texture_size.x (~800) bailed out on points farther than ~28px from every
@@ -1434,7 +1434,7 @@ int get_closest_center_index(MapData *map, Vector2 p) {
 }
 
 /* Point inside a center's (unclipped) cell? The Delaunay neighbors define it. */
-static int point_in_cell(MapData *map, int ci, Vector2 p)
+static int point_in_cell(MapGraph *map, int ci, Vector2 p)
 {
 	Center *c = &map->c[ci];
 	double dc = dist2(c->pos, p);
@@ -1497,7 +1497,7 @@ static int convex_hull(Vector2 *pts, int n, Vector2 *out, int cap)
  * rectangle corner inside the cell; hulling those gives the exact polygon and
  * drops the endpoints that only lie along a straight side.
  * Needs room for about 2*nc points in out. */
-static int cell_polygon(MapData *map, int ci, Vector2 *out, int cap)
+static int cell_polygon(MapGraph *map, int ci, Vector2 *out, int cap)
 {
 	Center *c = &map->c[ci];
 	float W = map->texture_size.x, H = map->texture_size.y;
@@ -1543,7 +1543,7 @@ static int cell_polygon(MapData *map, int ci, Vector2 *out, int cap)
 
 /* One Lloyd step: move every center to the centroid of its cell, then rebuild.
  * Evenly spreads the centers, which is what makes the cells map well. */
-static void relax_one(MapData *map)
+static void relax_one(MapGraph *map)
 {
 	int n = map->nc;
 	if (n <= 0) return;
@@ -1563,48 +1563,21 @@ static void relax_one(MapData *map)
 	triangulate_map(map);
 }
 
-void relax_voronoi_map(MapData *map, int iterations) {
+void relax_voronoi_map(MapGraph *map, int iterations) {
   for (int i = 0; i < iterations; i++) relax_one(map);
 }
 
-// Make Cell type either water, land, ocean
-void generate_heightmap(MapData *map) {
-  if (map->nc <= 0) return;
-
+// Assigning features after generation heightmap
+void assign_cells_data(MapGraph *map) {
   for (int i = 0; i < map->nc; i++) {
-    map->c[i].elevation = 0; // Base height (ocean)
+    if (map->c[i].elevation < 20) {
+      map->c[i].water = 1;
+    }
   }
-
-  //Normal Continent
-  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){20, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
-  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-20}, (int[]){50, map->texture_size.y-50});
-  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){50, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
-  multiply_elevation(map, 0.9, (int[]){80, 100});
-  mask_elevation(map, 1.5f);
-  // smooth_elevation(map, 1);
-  // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
-
-  //Invert Miss
-  // add_elevation(map, 40, 0);
-  // mask_elevation(map, 0.2f);
-  // add_hills(map, (int[]){10, 15}, (int[]){50, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // multiply_elevation(map, 0.8, (int[]){20, 100});
-  // multiply_elevation(map, 0.7, (int[]){90, 100});
-  // invert_elevation(map, 80);
-
-
-  map->dirty = 1; // elevation drives the cell colors in the cached texture
 }
 
 /* Reseed the centers and rebuild the map, optionally relaxing afterwards. */
-void generate_voronoi_map(MapData *map, Params p) {
+void generate_voronoi_map(MapGraph *map, Params p) {
   if (!map) return;
 
   map->texture_size = p.map_size;
@@ -1624,7 +1597,10 @@ void generate_voronoi_map(MapData *map, Params p) {
   triangulate_map(map);
   if (p.relax > 0) relax_voronoi_map(map, p.relax);
 
-  generate_heightmap(map);
+  generate_heightmap(map); // 1. Generate the heightmap
+  assign_cells_data(map);  // 2. Assign land water and cornor features
+                           // 3. Assign rivers
+  map->dirty = 1;
 }
 
 
@@ -1697,7 +1673,7 @@ static void fill_convex_poly(Image *img, const Vector2 *poly, int n, Color c)
 	}
 }
 
-Image gen_voronoi_image(MapData *map) {
+Image gen_voronoi_image(MapGraph *map) {
   Image image = GenImageColor((int)map->texture_size.x, (int)map->texture_size.y, WHITE);
 
   int cap = 2 * (map->nc > 0 ? map->nc : 1) + 8;
@@ -1717,7 +1693,7 @@ Image gen_voronoi_image(MapData *map) {
   return image;
 }
 
-Texture2D gen_voronoi_texture(MapData *map) {
+Texture2D gen_voronoi_texture(MapGraph *map) {
   if (!map->dirty && map->tex.id != 0) return map->tex;
   if (map->tex.id != 0) UnloadTexture(map->tex);
   Image img = gen_voronoi_image(map);
@@ -1729,7 +1705,7 @@ Texture2D gen_voronoi_texture(MapData *map) {
 
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
-void draw_voronoi_map(MapData *map, int with_lines) {
+void draw_voronoi_map(MapGraph *map, int with_lines) {
   DrawTextureEx(gen_voronoi_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
 
   if (!with_lines) return;
