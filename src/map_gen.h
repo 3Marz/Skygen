@@ -105,7 +105,7 @@ void map_graph_generate(MapGraph *map, MapParams p);
 void map_graph_relax(MapGraph *map, int iterations);
 
 /* Recompute every cell's elevation from the random hills. */
-void map_graph_generate_heightmap(MapGraph *map);
+void map_graph_generate_heightfield(MapGraph *map);
 
 /* Index of the center nearest to p, or -1 if the map has no centers. */
 int map_graph_get_closest_center(MapGraph *map, Vector2 p);

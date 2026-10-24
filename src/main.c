@@ -36,7 +36,7 @@ int main(void) {
       if (regenerate == 1) {
         map_graph_generate(v_map, params);
       } else if (regenerate == 2) {
-        map_graph_generate_heightmap(v_map);
+        map_graph_generate_heightfield(v_map);
       }
       mapTexture = map_graph_generate_texture(v_map);
       regenerate = 0;

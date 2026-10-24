@@ -1576,11 +1576,13 @@ void assign_cells_data(MapGraph *map) {
   }
 }
 
-void map_graph_generate_heightmap(MapGraph *map) {
+void map_graph_generate_heightfield(MapGraph *map) {
 
   if (map->nc <= 0) return;
 
-  map_heights_assign(map);
+  map_heights_assign(map); // 1. Generate the heightmap
+  assign_cells_data(map);  // 2. Assign land water and cornor features
+                           // 3. Assign rivers
 
   map->dirty = 1;
 }
@@ -1606,9 +1608,8 @@ void map_graph_generate(MapGraph *map, MapParams p) {
   triangulate_map(map);
   if (p.relax > 0) relax_voronoi_map(map, p.relax);
 
-  map_graph_generate_heightmap(map); // 1. Generate the heightmap
-  assign_cells_data(map);  // 2. Assign land water and cornor features
-                           // 3. Assign rivers
+  map_graph_generate_heightfield(map); 
+
   map->dirty = 1;
 }
 
