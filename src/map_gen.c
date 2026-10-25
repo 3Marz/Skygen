@@ -1432,6 +1432,16 @@ int map_graph_get_closest_center(MapGraph *map, Vector2 p) {
   return minIndex;
 }
 
+static int edge_between(const MapGraph *map, int qa, int qb)
+{
+    const MapCorner *q = &map->q[qa];
+    for (int k = 0; k < q->nprot; k++) {
+        const MapEdge *E = &map->e[q->prot[k]];
+        if ((E->v0 == qa && E->v1 == qb) || (E->v0 == qb && E->v1 == qa)) return q->prot[k];
+    }
+    return -1;
+}
+
 /* Point inside a center's (unclipped) cell? The Delaunay neighbors define it. */
 static int point_in_cell(MapGraph *map, int ci, Vector2 p)
 {
@@ -1578,6 +1588,10 @@ void reset_heightfield(MapGraph *map) {
       q->ocean = q->moisture = q->river = 0;
     q->downslope = -1;
   }
+  for (int i = 0; i < map->ne; i++) {
+    MapEdge *e = &map->e[i];
+    e->river = 0;
+  }
 }
 
 // Assigning features after generation heightmap
@@ -1612,8 +1626,11 @@ void assign_cells_data(MapGraph *map) {
     MapCorner* q = &map->q[qi];
     if (q->water || q->coast) { q->downslope = qi; continue; }
     int downest = qi;
+    float best_steep = 0;
     for (int k = 0; k < q->nadj; k++) {
-      if (map->q[q->adj[k]].elevation < q->elevation) {
+      float steep = q->elevation - map->q[q->adj[k]].elevation;
+      if (map->q[q->adj[k]].elevation < q->elevation && steep > best_steep) {
+        best_steep = steep;
         downest = q->adj[k];
       }
     }
@@ -1635,9 +1652,24 @@ void assign_cells_data(MapGraph *map) {
 
 void assign_rivers(MapGraph *map) {
 
-  int attempts = map->nq / 40;
+  int attempts = map->nq / 50;
   for (int i = 0; i < attempts; i++) {
-    
+    int qi = GetRandomValue(0, map->nq - 1);
+    MapCorner *q = &map->q[qi];
+    if (q->water || q->coast || q->elevation < 25 || q->elevation > 90 ) continue;
+    int steps = 0;
+    while (!map->q[qi].coast && steps++ < 10000) {
+      int downslope = map->q[qi].downslope;
+      if (downslope == qi) {
+        printf("OO OO\n");
+        break;
+      }
+      int edge = edge_between(map, qi, downslope); 
+      if (edge >= 0) map->e[edge].river++;
+      map->q[qi].river++;
+      map->q[downslope].river++;
+      qi = downslope;
+    }
   }
 }
 
@@ -1649,7 +1681,8 @@ void map_graph_generate_heightfield(MapGraph *map) {
 
   map_heights_assign(map); // 1. Generate the heightmap
   assign_cells_data(map);  // 2. Assign land water and cornor features
-                           // 3. Assign rivers
+  assign_rivers(map);      // 3. Assign rivers
+                           // 4.
 
   map->dirty = 1;
 }
@@ -1766,6 +1799,17 @@ Image gen_voronoi_image(MapGraph *map) {
     fill_convex_poly(&image, poly, n, heightColor);
   }
   free(poly);
+
+  // rivers
+  for (int i = 0; i < map->ne; i++) {
+    MapEdge *e = &map->e[i];
+    if (!e->river) continue;
+
+    Vector2 start = map->q[e->v0].pos;
+    Vector2 end = map->q[e->v1].pos;
+
+    ImageDrawLineEx(&image, start, end, 3, BLUE);
+  }
 
   return image;
 }
