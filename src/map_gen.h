@@ -12,6 +12,8 @@
  * pointer here; the full definition lives in map_gen.c. */
 typedef struct HullEdge HullEdge;
 
+#define LAND_THRESHOLD 20
+
 typedef struct {
   Vector2 map_size; /* map rectangle in pixels */
   int n_sites;      /* number of polygon centers to seed */

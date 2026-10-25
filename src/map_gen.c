@@ -1,5 +1,4 @@
 #include "map_gen.h"
-
 #include <raylib.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -1567,18 +1566,86 @@ void relax_voronoi_map(MapGraph *map, int iterations) {
   for (int i = 0; i < iterations; i++) relax_one(map);
 }
 
+void reset_heightfield(MapGraph *map) {
+  for (int i = 0; i < map->nc; i++) {
+    MapCenter *c = &map->c[i];
+    c->elevation = c->coast = c->water = c->biome =
+      c->border = c->ocean = c->moisture = 0;
+  }
+  for (int i = 0; i < map->nq; i++) {
+    MapCorner *q = &map->q[i];
+    q->elevation = q->coast = q->water = q->border = 
+      q->ocean = q->moisture = q->river = 0;
+    q->downslope = -1;
+  }
+}
+
 // Assigning features after generation heightmap
 void assign_cells_data(MapGraph *map) {
   for (int i = 0; i < map->nc; i++) {
-    if (map->c[i].elevation < 20) {
+    if (map->c[i].elevation < LAND_THRESHOLD) {
       map->c[i].water = 1;
     }
+  }
+  // Corner elevation / water / coast
+  for (int qi = 0; qi < map->nq; qi++) {    
+    MapCorner* q = &map->q[qi];
+    int avg = 0; 
+    int num_water = 0; 
+    int num_land = 0;
+
+    for (int ti = 0; ti < q->ntouch; ti++) {
+      int ci = q->touches[ti];
+      avg += map->c[ci].elevation;
+      if (map->c[ci].water) num_water++;
+      if (!map->c[ci].water) num_land++;
+    }
+
+    q->elevation = (int)(avg/q->ntouch);
+    q->coast = (num_water > 0 && num_land > 0);
+    q->water = (num_land != q->ntouch && !q->coast);
+
+  }
+
+  // Downslope
+  for (int qi = 0; qi < map->nq; qi++) {    
+    MapCorner* q = &map->q[qi];
+    if (q->water || q->coast) { q->downslope = qi; continue; }
+    int downest = qi;
+    for (int k = 0; k < q->nadj; k++) {
+      if (map->q[q->adj[k]].elevation < q->elevation) {
+        downest = q->adj[k];
+      }
+    }
+    q->downslope = downest;
+  }
+
+  // Center coasts
+  for (int i = 0; i < map->nc; i++) {
+    MapCenter *c = &map->c[i];
+    int num_water = 0, num_land = 0;
+    for (int ni = 0; ni < c->nneigh; ni++) {
+      int n = map->c[i].neigh[ni];
+      if (map->c[n].water) num_water++;
+      if (!map->c[n].water) num_land++;
+    }
+    c->coast = (num_water > 0 && num_land > 0);
+  }
+}
+
+void assign_rivers(MapGraph *map) {
+
+  int attempts = map->nq / 40;
+  for (int i = 0; i < attempts; i++) {
+    
   }
 }
 
 void map_graph_generate_heightfield(MapGraph *map) {
 
   if (map->nc <= 0) return;
+
+  reset_heightfield(map);  // 0. Reset all cells, cornor heightfield data
 
   map_heights_assign(map); // 1. Generate the heightmap
   assign_cells_data(map);  // 2. Assign land water and cornor features
@@ -1726,6 +1793,17 @@ void map_graph_draw(MapGraph *map, int with_lines) {
     int s = map->pstart[i], len = map->plen[i];
     for (int j = 0; j + 1 < len; j++) {
       DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
+    }
+  }
+
+  for (int i = 0; i < map->nq; i++) {
+    MapCorner *q = &map->q[i];
+    if (q->coast) {
+      DrawCircleV(q->pos, 2.0f, BROWN);
+    } else if (q->water) {
+      DrawCircleV(q->pos, 2.0f, BLUE);
+    } else if (!q->water && !q->coast) {
+      DrawCircleV(q->pos, 2.0f, GREEN);
     }
   }
 

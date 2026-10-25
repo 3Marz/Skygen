@@ -70,7 +70,7 @@ void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
       Vector2 randPos = { rand_range(x), rand_range(y) };
       start = map_graph_get_closest_center(map, randPos);
       limit++;
-    } while (map->c[start].elevation < 20 && limit < 50);
+    } while (map->c[start].elevation < LAND_THRESHOLD && limit < 50);
     // if (start < 0) start = 0; /* no centers at all; keep the index valid */
 
     IntArray queue = int_array_new(4);
@@ -101,7 +101,7 @@ void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
 
 void add_elevation(MapGraph *map, int value, int land_only) {
   for (int i = 0; i < map->nc; i++) {
-    if (land_only && map->c[i].elevation < 20) continue;
+    if (land_only && map->c[i].elevation < LAND_THRESHOLD) continue;
     map->c[i].elevation = limit_h(map->c[i].elevation + value);
   }
 }
@@ -450,10 +450,6 @@ void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
 }
 
 void map_heights_assign(MapGraph *map) {
-
-  for (int i = 0; i < map->nc; i++) {
-    map->c[i].elevation = 0; // Base height (ocean)
-  }
 
   //Normal Continent
   add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){20, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
