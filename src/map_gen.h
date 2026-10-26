@@ -13,6 +13,7 @@
 typedef struct HullEdge HullEdge;
 
 #define LAND_THRESHOLD 20
+#define RIVERS_RATE_LIMIT 80  
 
 typedef struct {
   Vector2 map_size; /* map rectangle in pixels */

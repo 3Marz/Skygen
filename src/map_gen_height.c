@@ -199,6 +199,33 @@ void smooth_elevation(MapGraph *map, int passes) {
   }
 }
 
+void smooth_coast_elevation(MapGraph *map, int passes) {
+
+  for (int p = 0; p < passes; p++) {
+    int heights[map->nc];
+    memset(&heights, -1, sizeof(heights));
+
+    for (int c = 0; c < map->nc; c++) {
+      int avg = map->c[c].elevation;
+
+      if (map->c[c].elevation < 15.0f || map->c[c].elevation > 25.0f) continue;
+
+      for (int ni = 0; ni < map->c[c].nneigh; ni++) {
+        int n = map->c[c].neigh[ni];
+        avg += map->c[n].elevation;
+      }
+      avg = avg / (map->c[c].nneigh+1);
+
+      heights[c] = avg;
+    }
+
+    for (int i = 0; i < map->nc; i++) {
+      if (heights[i] != -1)
+        map->c[i].elevation = limit_h(heights[i]);
+    }
+  }
+}
+
 IntArray get_cell_range(MapGraph *map, int cur, int end, float randomnes, int expand_width) {
 
   IntArray range = int_array_new(4);
@@ -458,9 +485,10 @@ void map_heights_assign(MapGraph *map) {
   add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){50, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
   add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
   add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_strip(map, (int[]){30, 60}, (int[]){2, 6}, 0);
+  add_strip(map, (int[]){50, 80}, (int[]){2, 6}, 0);
   multiply_elevation(map, 0.9, (int[]){80, 100});
   mask_elevation(map, 1.5f);
+  smooth_coast_elevation(map, 2);
   // smooth_elevation(map, 1);
   // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
 

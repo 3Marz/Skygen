@@ -601,6 +601,7 @@ MapGraph *map_graph_init(MapParams p) {
   map->tex = (Texture2D){ 0 };
   map->dirty = 1;
 
+  //TODO blob power determint by number of cells
   map->blob_power = 0.97f;
 
   return map;
@@ -1634,19 +1635,41 @@ void assign_cells_data(MapGraph *map) {
       mh_push(&heap, 0.0f, i);
     }
   }
+  if (heap.len == 0 && map->nq > 0) {
+      int lo = 0;
+      for (int i = 1; i < map->nq; i++) 
+        if (map->q[i].elevation < map->q[lo].elevation) 
+          lo = i;
+      fill[lo] = 0.0f;
+      mh_push(&heap, 0.0f, lo);
+  }
+  while (heap.len > 0) {
+    KI node = mh_pop(&heap);
+    int i = node.idx;
+    if (used[i]) continue;
+    used[i] = 1;
+    fill[i] = node.value;
+    MapCorner *q = &map->q[i];
+    for (int ai = 0; ai < q->nadj; ai++) {
+      int adj = q->adj[ai];
+      if (used[adj]) continue;
+      float f = fmaxf(map->q[adj].elevation, node.value + 0.005f);
+      if (f < fill[adj] - 1e-6f) continue;
+      fill[adj] = f;
+      mh_push(&heap, f, adj);
+    }
+  }
 
   for (int qi = 0; qi < map->nq; qi++) {    
     MapCorner* q = &map->q[qi];
     if (q->water || q->coast) { q->downslope = qi; continue; }
+
     int downest = qi;
-    float best_steep = 0;
     for (int k = 0; k < q->nadj; k++) {
-      float steep = q->elevation - map->q[q->adj[k]].elevation;
-      if (map->q[q->adj[k]].elevation < q->elevation && steep > best_steep) {
-        best_steep = steep;
+      if (fill[q->adj[k]] < fill[downest])
         downest = q->adj[k];
-      }
     }
+
     q->downslope = downest;
   }
   free(fill); free(used);
@@ -1666,7 +1689,8 @@ void assign_cells_data(MapGraph *map) {
 
 void assign_rivers(MapGraph *map) {
 
-  int attempts = map->nq / 50;
+  int attempts = map->nc / RIVERS_RATE_LIMIT;
+
   for (int i = 0; i < attempts; i++) {
     int qi = GetRandomValue(0, map->nq - 1);
     MapCorner *q = &map->q[qi];
@@ -1819,7 +1843,7 @@ Image gen_voronoi_image(MapGraph *map) {
     Vector2 start = map->q[e->v0].pos;
     Vector2 end = map->q[e->v1].pos;
 
-    ImageDrawLineEx(&image, start, end, 3, BLUE);
+    ImageDrawLineEx(&image, start, end, 3, (Color){90, 75, 190, 255});
   }
 
   return image;
