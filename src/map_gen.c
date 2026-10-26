@@ -1622,6 +1622,19 @@ void assign_cells_data(MapGraph *map) {
   }
 
   // Downslope
+  float *fill = calloc(map->nq, sizeof(float));
+  int *used = calloc(map->nq, sizeof(int));
+  MinHeap heap = { 0 };
+
+  for (int i = 0; i < map->nq; i++) {
+    MapCorner *q = &map->q[i];
+    fill[i] = q->elevation;
+    if (q->water || q->coast) {
+      fill[i] = 0.0f;
+      mh_push(&heap, 0.0f, i);
+    }
+  }
+
   for (int qi = 0; qi < map->nq; qi++) {    
     MapCorner* q = &map->q[qi];
     if (q->water || q->coast) { q->downslope = qi; continue; }
@@ -1636,6 +1649,7 @@ void assign_cells_data(MapGraph *map) {
     }
     q->downslope = downest;
   }
+  free(fill); free(used);
 
   // Center coasts
   for (int i = 0; i < map->nc; i++) {
@@ -1660,10 +1674,7 @@ void assign_rivers(MapGraph *map) {
     int steps = 0;
     while (!map->q[qi].coast && steps++ < 10000) {
       int downslope = map->q[qi].downslope;
-      if (downslope == qi) {
-        printf("OO OO\n");
-        break;
-      }
+      if (downslope == qi) break;
       int edge = edge_between(map, qi, downslope); 
       if (edge >= 0) map->e[edge].river++;
       map->q[qi].river++;

@@ -46,7 +46,7 @@ IntArray int_array_new(size_t initial_capacity) {
   return arr;
 }
 
-int int_array_at(IntArray *arr, int idx) {
+static int int_array_at(IntArray *arr, int idx) {
   if (idx >= arr->size || idx >= arr->capacity) {
     printf("Error: Accessing uninitialize memory on int array with size: %lu, index:%i\n", arr->size, idx);
     return INVALID_INDEX;
@@ -54,7 +54,7 @@ int int_array_at(IntArray *arr, int idx) {
   return arr->data[idx];
 }
 
-void int_array_push(IntArray *arr, int value) {
+static void int_array_push(IntArray *arr, int value) {
   if (arr->size >= arr->capacity) {
     arr->capacity *= 2;
     arr->data = realloc(arr->data, arr->capacity * sizeof(int));
@@ -62,7 +62,7 @@ void int_array_push(IntArray *arr, int value) {
   arr->data[arr->size++] = value;
 }
 
-int int_array_shift(IntArray *arr) {
+static int int_array_shift(IntArray *arr) {
   if (arr->size <= 0) {
     printf("Error: Cant shift on empty array");
     return INVALID_INDEX;
@@ -78,7 +78,7 @@ int int_array_shift(IntArray *arr) {
   return out;
 }
 
-void int_array_free(IntArray *arr) {
+static void int_array_free(IntArray *arr) {
   free(arr->data);
   arr->data = NULL;
   arr->capacity = 0;
@@ -91,6 +91,43 @@ void int_array_print(IntArray *arr) {
         printf("%d, ", int_array_at(arr, i));
     }
     printf("]\n");
+}
+
+// Min Heap
+static void mh_push(MinHeap *h, float k, int i)
+{
+    if (h->len == h->cap) { 
+      h->cap = h->cap ? h->cap * 2 : 1024;
+      h->data = realloc(h->data, (size_t)h->cap * sizeof(KI));
+    }
+
+    int c = h->len++;
+    h->data[c].value = k; h->data[c].idx = i;
+    while (c > 0) {
+        int p = (c - 1) / 2;
+        if (h->data[p].value <= h->data[c].value) break;
+        KI t = h->data[p]; 
+        h->data[p] = h->data[c];
+        h->data[c] = t; c = p;
+    }
+}
+static KI mh_pop(MinHeap *h)
+{
+    KI top = h->data[0];
+    h->data[0] = h->data[--h->len];
+    int c = 0;
+    for (;;) {
+        int l = 2 * c + 1,
+            r = l + 1,
+            m = c;
+        if (l < h->len && h->data[l].value < h->data[m].value) m = l;
+        if (r < h->len && h->data[r].value < h->data[m].value) m = r;
+        if (m == c) break;
+        KI t = h->data[m];
+        h->data[m] = h->data[c];
+        h->data[c] = t; c = m;
+    }
+    return top;
 }
 
 // COLORS
