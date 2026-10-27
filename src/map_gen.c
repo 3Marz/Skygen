@@ -1,5 +1,6 @@
 #include "map_gen.h"
 #include <raylib.h>
+#include <raymath.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1843,7 +1844,7 @@ Image gen_voronoi_image(MapGraph *map) {
     Vector2 start = map->q[e->v0].pos;
     Vector2 end = map->q[e->v1].pos;
 
-    ImageDrawLineEx(&image, start, end, 3, (Color){90, 75, 190, 255});
+    ImageDrawLineThick(&image, start.x, start.y, end.x, end.y, Clamp(e->river/2.0f, 0.8, 4.5), (Color){90, 75, 190, 255});
   }
 
   return image;

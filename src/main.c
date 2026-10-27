@@ -29,8 +29,8 @@ int main(void) {
     // if (IsKeyPressed(KEY_Z)) { switchCamera = true; }
     if (IsKeyPressed(KEY_H)) { regenerate = 2; }
     if (IsKeyPressed(KEY_SPACE)) { regenerate = 1; }
-    if (IsKeyPressed(KEY_UP)) { params.n_sites += 200; regenerate = 1; }
-    if (IsKeyPressed(KEY_DOWN)) { params.n_sites -= 200; regenerate = 1; }
+    if (IsKeyPressed(KEY_UP)) { params.n_sites += 500; regenerate = 1; }
+    if (IsKeyPressed(KEY_DOWN)) { params.n_sites -= 500; regenerate = 1; }
 
     if (regenerate) {
       if (regenerate == 1) {

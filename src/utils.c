@@ -1,7 +1,9 @@
 #include "utils.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <raylib.h>
+#include <raymath.h>
 #include <stdlib.h>
 
 float rnd() {
@@ -159,6 +161,52 @@ Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, f
     return result;
 }
 
+// Draw
+void ImageDrawLineThick(Image *dst, int startPosX, int startPosY, int endPosX, int endPosY, float thickness, Color color) {
+  // Calculate differences in coordinates
+  int shortLen = endPosY - startPosY;
+  int longLen = endPosX - startPosX;
+  bool yLonger = false;
+
+  // Determine if the line is more vertical than horizontal
+  if (abs(shortLen) > abs(longLen)) {
+    // Swap the lengths if the line is more vertical
+    int temp = shortLen;
+    shortLen = longLen;
+    longLen = temp;
+    yLonger = true;
+  }
+
+  // Initialize variables for drawing loop
+  int endVal = longLen + 1;
+  int sgnInc = 1;
+
+  // Adjust direction increment based on longLen sign
+  if (longLen < 0) {
+    longLen = -longLen;
+    sgnInc = -1;
+    endVal -= 2;
+  }
+
+  // Calculate fixed-point increment for shorter length
+  int decInc = (longLen == 0) ? 0 : (shortLen << 16) / longLen;
+
+  // Draw the line pixel by pixel
+  if (yLonger) {
+    // If line is more vertical, iterate over y-axis
+    // Init j with 0.5 in 16-bit fixed point (1 << 15) for better rounding.
+    for (int i = 0, j = (1 << 15); i != endVal; i += sgnInc, j += decInc) {
+      // Calculate pixel position and draw it
+      ImageDrawCircle(dst, startPosX + (j >> 16), startPosY + i, thickness, color);
+    }
+  } else {
+    // If line is more horizontal, iterate over x-axis
+    for (int i = 0, j = (1 << 15); i != endVal; i += sgnInc, j += decInc) {
+      // Calculate pixel position and draw it
+      ImageDrawCircle(dst, startPosX + i, startPosY + (j >> 16), thickness, color);
+    }
+  }
+}
 
 
 
