@@ -134,7 +134,7 @@ KI mh_pop(MinHeap *h)
 
 // COLORS
 
-Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, float ratio) {
+Color get_percentage_gradient_color(GradientStop* stops, int stop_count, float ratio) {
     // Boundary protection
     if (ratio <= stops[0].threshold) return stops[0].color;
     if (ratio >= stops[stop_count - 1].threshold) return stops[stop_count - 1].color;

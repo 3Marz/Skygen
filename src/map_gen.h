@@ -15,6 +15,11 @@ typedef struct HullEdge HullEdge;
 #define LAND_THRESHOLD 20
 #define RIVERS_RATE_LIMIT 80  
 
+enum DRAW_MODES {
+  MODE_2D,
+  MODE_3D
+};
+
 typedef struct {
   Vector2 map_size; /* map rectangle in pixels */
   int n_sites;      /* number of polygon centers to seed */
@@ -85,6 +90,7 @@ typedef struct {
   /* Cached rendering. Rebuilt only when the map changes, since filling and
    * uploading every frame is pure waste for a static map. */
   Texture2D tex;
+  Model model;
   int dirty;
 
   // For heightmap
@@ -120,6 +126,6 @@ Image map_graph_generate_image(MapGraph *map);
 Texture2D map_graph_generate_texture(MapGraph *map);
 
 /* Draw the cached map texture (optionally with cell outlines). */
-void map_graph_draw(MapGraph *map, int with_lines);
+void map_graph_draw(MapGraph *map, int with_lines, int mode);
 
 #endif /* SKYGEN_MAP_GEN_H */

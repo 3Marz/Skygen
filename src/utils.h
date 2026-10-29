@@ -49,7 +49,7 @@ typedef struct {
   Color color;
 } GradientStop;
 
-Color get_percentage_gradient_color(const GradientStop* stops, int stop_count, float ratio);
+Color get_percentage_gradient_color(GradientStop* stops, int stop_count, float ratio);
 
 // Draw
 void ImageDrawLineThick(Image *dst, int startPosX, int startPosY, int endPosX, int endPosY, float thickness, Color color);

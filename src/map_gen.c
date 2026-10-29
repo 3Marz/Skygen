@@ -10,7 +10,7 @@
 #include "map_gen_height.h"
 
 /* Height colour ramp used by gen_voronoi_image(). */
-static const GradientStop heightmap_levels[] = {
+GradientStop heightmap_levels[] = {
   { 0.00f,  {90, 75, 150, 255} },
   { 0.19f,  {69, 146, 163, 255} },
   { 0.20f,  {105, 189, 169, 255} },
@@ -18,7 +18,14 @@ static const GradientStop heightmap_levels[] = {
   { 0.90f,  {219, 94, 66, 255} },
   { 1.01f,  {219, 48, 48, 255} }
 };
-static const int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
+int heightmap_n = sizeof(heightmap_levels) / sizeof(heightmap_levels[0]);
+
+GradientStop model_height_levels[] = {
+  { 0.00f,  {10, 10, 10, 255} },
+  { 1.01f,  {225, 225, 255, 255} }
+};
+int model_height_n = sizeof(model_height_levels) / sizeof(model_height_levels[0]);
+
 
 /* -------------------------------------------------------------------------
  * Internal hull edges. The recursion walks convex hull rings; the public Edge
@@ -600,6 +607,7 @@ MapGraph *map_graph_init(MapParams p) {
   map->ecap = 0;
 
   map->tex = (Texture2D){ 0 };
+  map->model = (Model){ 0 };
   map->dirty = 1;
 
   //TODO blob power determint by number of cells
@@ -630,10 +638,16 @@ static void free_graph(MapGraph *map)
 
 void map_graph_free(MapGraph *map) {
   if (!map) return;
+
   if (map->tex.id != 0) {
     UnloadTexture(map->tex);
     map->tex = (Texture2D){ 0 };
   }
+  if (IsModelValid(map->model)){
+    UnloadModel(map->model);
+    map->model = (Model){ 0 };
+  }
+
   free_graph(map);
   edge_index_free(map);
   free_hull_edges(map);
@@ -1819,7 +1833,7 @@ static void fill_convex_poly(Image *img, const Vector2 *poly, int n, Color c)
 	}
 }
 
-Image gen_voronoi_image(MapGraph *map) {
+Image gen_voronoi_image(MapGraph *map, GradientStop *gradient, int gradient_n) {
   Image image = GenImageColor((int)map->texture_size.x, (int)map->texture_size.y, WHITE);
 
   int cap = 2 * (map->nc > 0 ? map->nc : 1) + 8;
@@ -1827,7 +1841,7 @@ Image gen_voronoi_image(MapGraph *map) {
   for (int i = 0; i < map->nc; i++) {
     int n = cell_polygon(map, i, poly, cap);
     float elev = map->c[i].elevation / 100.0f;
-    Color heightColor = get_percentage_gradient_color(heightmap_levels, heightmap_n, elev);
+    Color heightColor = get_percentage_gradient_color(gradient, gradient_n, elev);
     
     // TODO Add option for this
     // if (elev < 0.2) heightColor = heightmap_levels[0].color;
@@ -1853,42 +1867,62 @@ Image gen_voronoi_image(MapGraph *map) {
 Texture2D map_graph_generate_texture(MapGraph *map) {
   if (!map->dirty && map->tex.id != 0) return map->tex;
   if (map->tex.id != 0) UnloadTexture(map->tex);
-  Image img = gen_voronoi_image(map);
+  Image img = gen_voronoi_image(map, heightmap_levels, heightmap_n);
   map->tex = LoadTextureFromImage(img);
   UnloadImage(img);
   map->dirty = 0;
   return map->tex;
 }
 
+Model map_graph_generate_model(MapGraph *map) {
+  if (!map->dirty && IsModelValid(map->model)) return map->model;
+  if (IsModelValid(map->model)) UnloadModel(map->model);
+
+  Image heightmap = gen_voronoi_image(map, model_height_levels, model_height_n);
+  Mesh terrain_mesh = GenMeshHeightmap(heightmap, (Vector3){ 100, 50, 100 });
+
+  map->model = LoadModelFromMesh(terrain_mesh);
+  map->model.materials[0].maps[MATERIAL_MAP_ALBEDO].texture = map_graph_generate_texture(map);
+
+  UnloadImage(heightmap);
+
+  return map->model;
+}
+
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
-void map_graph_draw(MapGraph *map, int with_lines) {
-  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+void map_graph_draw(MapGraph *map, int with_lines, int mode) {
+  if (mode == MODE_2D) {
+    DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
 
-  if (!with_lines) return;
+    if (!with_lines) return;
 
-  // Cell borders: the already-clipped edge polylines.
-  Color edge = { 100, 100, 100, 255 };
-  for (int i = 0; i < map->ne; i++) {
-    int s = map->pstart[i], len = map->plen[i];
-    for (int j = 0; j + 1 < len; j++) {
-      DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
+    // Cell borders: the already-clipped edge polylines.
+    Color edge = { 100, 100, 100, 255 };
+    for (int i = 0; i < map->ne; i++) {
+      int s = map->pstart[i], len = map->plen[i];
+      for (int j = 0; j + 1 < len; j++) {
+        DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
+      }
     }
-  }
 
-  for (int i = 0; i < map->nq; i++) {
-    MapCorner *q = &map->q[i];
-    if (q->coast) {
-      DrawCircleV(q->pos, 2.0f, BROWN);
-    } else if (q->water) {
-      DrawCircleV(q->pos, 2.0f, BLUE);
-    } else if (!q->water && !q->coast) {
-      DrawCircleV(q->pos, 2.0f, GREEN);
+    for (int i = 0; i < map->nq; i++) {
+      MapCorner *q = &map->q[i];
+      if (q->coast) {
+        DrawCircleV(q->pos, 2.0f, BROWN);
+      } else if (q->water) {
+        DrawCircleV(q->pos, 2.0f, BLUE);
+      } else if (!q->water && !q->coast) {
+        DrawCircleV(q->pos, 2.0f, GREEN);
+      }
     }
-  }
 
-  // Sites on top
-  for (int i = 0; i < map->nc; i++) {
-    DrawCircleV(map->c[i].pos, 2, BLACK);
+    // Sites on top
+    for (int i = 0; i < map->nc; i++) {
+      DrawCircleV(map->c[i].pos, 2, BLACK);
+    }
+  } else if (mode == MODE_3D) {
+    DrawModelWires(map_graph_generate_model(map), (Vector3){-1.0f, -1.0f, -1.0f}, 1.0f, WHITE);
   }
 }
+
