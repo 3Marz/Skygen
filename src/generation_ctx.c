@@ -1,6 +1,7 @@
 
 #include "generation_ctx.h"
 #include "map_gen.h"
+#include "terrain.h"
 #include <raylib.h>
 
 void regenerate_map(GenerationCtx *ctx) {
@@ -41,8 +42,14 @@ void gen_ctx_init(GenerationCtx *ctx) {
   map_graph_generate(v_map, ctx->map_params);
   ctx->map = v_map;
 
+  ctx->terrain = (Terrain){ 0 };
+  terrain_init(&ctx->terrain);
+  terrain_generate(&ctx->terrain, ctx->map);
+
   ctx->regenerate = 0;
-  ctx->draw_mode = MODE_2D;
+  ctx->draw_mode = MODE_3D;
+
+  DisableCursor();
 
 }
 
@@ -59,7 +66,10 @@ void gen_ctx_update(GenerationCtx *ctx) {
   }
 
   if (ctx->draw_mode == MODE_3D) {
+    // DisableCursor();
     UpdateCamera(&ctx->camera, CAMERA_FREE);
+  } else {
+    // ShowCursor();
   }
 
 }
@@ -71,7 +81,7 @@ void gen_ctx_draw(GenerationCtx *ctx) {
   switch (ctx->draw_mode) {
     case MODE_3D:
       BeginMode3D(ctx->camera);
-        map_graph_draw(ctx->map, 0, MODE_3D);
+        terrain_draw(&ctx->terrain);
       EndMode3D();
       break;
     case MODE_2D:
@@ -82,8 +92,10 @@ void gen_ctx_draw(GenerationCtx *ctx) {
 
 void gen_ctx_free(GenerationCtx *ctx) {
 
+  ctx->camera = (Camera){ 0 };
+  ctx->map_params = (MapParams){ 0 };
   map_graph_free(ctx->map);
-  CloseWindow();
+  terrain_free(&ctx->terrain);
 
 }
 

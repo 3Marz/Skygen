@@ -23,5 +23,7 @@ int main(void) {
 
   gen_ctx_free(&gen_ctx);
 
+  CloseWindow();
+
   return 0;
 }

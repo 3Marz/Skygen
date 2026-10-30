@@ -1879,7 +1879,7 @@ Model map_graph_generate_model(MapGraph *map) {
   if (IsModelValid(map->model)) UnloadModel(map->model);
 
   Image heightmap = gen_voronoi_image(map, model_height_levels, model_height_n);
-  Mesh terrain_mesh = GenMeshHeightmap(heightmap, (Vector3){ 100, 50, 100 });
+  Mesh terrain_mesh = GenMeshHeightmap(heightmap, (Vector3){ 1000, 300, 1000 });
 
   map->model = LoadModelFromMesh(terrain_mesh);
   map->model.materials[0].maps[MATERIAL_MAP_ALBEDO].texture = map_graph_generate_texture(map);

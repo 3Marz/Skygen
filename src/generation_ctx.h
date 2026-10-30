@@ -2,6 +2,7 @@
 #define SKYGEN_GEN_CTX_H
 
 #include "map_gen.h"
+#include "terrain.h"
 
 typedef struct {
 
@@ -11,6 +12,7 @@ typedef struct {
   MapParams map_params;
 
   MapGraph *map;
+  Terrain terrain;
   Camera camera;
 
   int draw_mode;
