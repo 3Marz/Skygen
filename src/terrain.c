@@ -61,7 +61,7 @@ void tmesh_set_texcord(Mesh *tm, int i, float x, float y) {
 
 void terrain_generate(Terrain *terr, MapGraph *map) {
 
-  tgrid_init(&terr->grid, (Vector2){50, 50}, 1.0f);
+  tgrid_init(&terr->grid, (Vector2){100, 100}, 1.0f);
   tgrid_generate(&terr->grid, map);
   
   Mesh tm = { 0 };
@@ -77,7 +77,7 @@ void terrain_generate(Terrain *terr, MapGraph *map) {
   int vi = 0;
   for (int x = 0; x < terr->grid.size.x - 1; x++) {
     for (int y = 0; y < terr->grid.size.y - 1; y++) {
-      tmesh_set_vert(&tm, vi, terr->grid.vert[0+x][0+y]);
+      tmesh_set_vert(&tm, vi  , terr->grid.vert[0+x][0+y]);
       tmesh_set_vert(&tm, vi+1, terr->grid.vert[0+x][1+y]);
       tmesh_set_vert(&tm, vi+2, terr->grid.vert[1+x][0+y]);
 
@@ -108,7 +108,6 @@ void terrain_generate(Terrain *terr, MapGraph *map) {
 }
 
 void terrain_draw(Terrain *terr) {
-  DrawGrid(10, 10);
 
   float sizex = (terr->grid.size.x*terr->grid.spacing)-terr->grid.spacing,
         sizey = (terr->grid.size.y*terr->grid.spacing)-terr->grid.spacing;
