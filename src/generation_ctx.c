@@ -49,7 +49,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->regenerate = 0;
   ctx->draw_mode = MODE_3D;
 
-  DisableCursor();
+  // DisableCursor();
 
 }
 
@@ -67,7 +67,7 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
   if (ctx->draw_mode == MODE_3D) {
     // DisableCursor();
-    UpdateCamera(&ctx->camera, CAMERA_FREE);
+    UpdateCamera(&ctx->camera, CAMERA_ORBITAL);
   } else {
     // ShowCursor();
   }
