@@ -1891,38 +1891,34 @@ Model map_graph_generate_model(MapGraph *map) {
 
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
-void map_graph_draw(MapGraph *map, int with_lines, int mode) {
-  if (mode == MODE_2D) {
-    DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+void map_graph_draw(MapGraph *map, int with_lines) {
+  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
 
-    if (!with_lines) return;
+  if (!with_lines) return;
 
-    // Cell borders: the already-clipped edge polylines.
-    Color edge = { 100, 100, 100, 255 };
-    for (int i = 0; i < map->ne; i++) {
-      int s = map->pstart[i], len = map->plen[i];
-      for (int j = 0; j + 1 < len; j++) {
-        DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
-      }
+  // Cell borders: the already-clipped edge polylines.
+  Color edge = { 100, 100, 100, 255 };
+  for (int i = 0; i < map->ne; i++) {
+    int s = map->pstart[i], len = map->plen[i];
+    for (int j = 0; j + 1 < len; j++) {
+      DrawLineV(map->pool[s + j], map->pool[s + j + 1], edge);
     }
+  }
 
-    for (int i = 0; i < map->nq; i++) {
-      MapCorner *q = &map->q[i];
-      if (q->coast) {
-        DrawCircleV(q->pos, 2.0f, BROWN);
-      } else if (q->water) {
-        DrawCircleV(q->pos, 2.0f, BLUE);
-      } else if (!q->water && !q->coast) {
-        DrawCircleV(q->pos, 2.0f, GREEN);
-      }
+  for (int i = 0; i < map->nq; i++) {
+    MapCorner *q = &map->q[i];
+    if (q->coast) {
+      DrawCircleV(q->pos, 2.0f, BROWN);
+    } else if (q->water) {
+      DrawCircleV(q->pos, 2.0f, BLUE);
+    } else if (!q->water && !q->coast) {
+      DrawCircleV(q->pos, 2.0f, GREEN);
     }
+  }
 
-    // Sites on top
-    for (int i = 0; i < map->nc; i++) {
-      DrawCircleV(map->c[i].pos, 2, BLACK);
-    }
-  } else if (mode == MODE_3D) {
-    DrawModelWires(map_graph_generate_model(map), (Vector3){-1.0f, -1.0f, -1.0f}, 1.0f, WHITE);
+  // Sites on top
+  for (int i = 0; i < map->nc; i++) {
+    DrawCircleV(map->c[i].pos, 2, BLACK);
   }
 }
 

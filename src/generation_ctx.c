@@ -85,7 +85,7 @@ void gen_ctx_draw(GenerationCtx *ctx) {
       EndMode3D();
       break;
     case MODE_2D:
-      map_graph_draw(ctx->map, 0, MODE_2D);
+      map_graph_draw(ctx->map, 0);
       break;
   }
 }

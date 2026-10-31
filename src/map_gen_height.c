@@ -504,4 +504,50 @@ void map_heights_assign(MapGraph *map) {
   // invert_elevation(map, 80);
 }
 
+float map_heights_evaluate(MapGraph *map, Vector2 pos) {
+  float power = 1.0f;
+
+  // denormalize pos 
+  Vector2 to_map = {
+    pos.x * map->texture_size.x,
+    pos.y * map->texture_size.y
+  };
+
+  int center = map_graph_get_closest_center(map, to_map);
+
+  int nverts = map->c[center].ncorners;
+  int verts[nverts];
+  for (int i = 0; i < nverts; i++) {
+    verts[i] = map->c[center].corners[i];
+  }
+
+
+  float total_weight = 0.0f;
+  float weighted_sum = 0.0f;
+  for (int c = 0; c < nverts; c++) {
+
+    Vector2 cp = map->q[c].pos;
+    float dist = Vector2DistanceSqr(to_map, cp);
+
+    if (dist < 0.00001f) return map->q[c].elevation;
+
+    float weight = 1 / powf(dist, power);
+
+    weighted_sum += (weight * map->q[c].elevation);
+    total_weight += weight;
+  }
+
+  return weighted_sum / total_weight;
+}
+
+
+
+
+
+
+
+
+
+
+
 

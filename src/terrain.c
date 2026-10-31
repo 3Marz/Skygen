@@ -1,8 +1,11 @@
 
 #include "terrain.h"
 #include "map_gen.h"
+#include "map_gen_height.h"
+#include "utils.h"
 #include <math.h>
 #include <raylib.h>
+#include <raymath.h>
 #include <stdlib.h>
 
 
@@ -23,7 +26,19 @@ void tgrid_generate(TGrid *grid, MapGraph *map) {
 
   for (int x = 0; x < grid->size.x; x++) {
     for (int y = 0; y < grid->size.y; y++) {
-      grid->vert[x][y] = (Vector3){x * grid->spacing, sinf(x)+cosf(y), y * grid->spacing};
+
+      int px = x * grid->spacing; 
+      int pz = y * grid->spacing; 
+
+      Vector2 normalized_pos = {
+        Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing),
+        Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing),
+      };
+
+      float h = map_heights_evaluate(map, normalized_pos);
+      // printv(&h, T_FLOAT);
+
+      grid->vert[x][y] = (Vector3){px, h, pz};
     }
   }
 

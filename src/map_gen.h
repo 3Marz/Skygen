@@ -126,6 +126,6 @@ Image map_graph_generate_image(MapGraph *map);
 Texture2D map_graph_generate_texture(MapGraph *map);
 
 /* Draw the cached map texture (optionally with cell outlines). */
-void map_graph_draw(MapGraph *map, int with_lines, int mode);
+void map_graph_draw(MapGraph *map, int with_lines);
 
 #endif /* SKYGEN_MAP_GEN_H */
