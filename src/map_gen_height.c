@@ -10,19 +10,23 @@
 #include "utils.h"
 
 typedef struct {
-  float r[2];
+  int r[2];
 } MRange;
 
 MRange ra(int v0, int v1) {
-  return (MRange){{v0, v1}};
+  return (MRange) {
+    .r = {v0, v1}
+  };
 }
 int r_rand(MRange mr) {
   return GetRandomValue(mr.r[0], mr.r[1]); 
 }
-MRange r_to_map(MRange mr, int max) {
-  mr.r[0]/=100; mr.r[1]/=100;
-  mr.r[0]*=(float)max; mr.r[1]*=(float)max;
-  return mr;
+void r_to_map(MRange *mr, int max) {
+  float v0 = mr->r[0] / 100.0f; 
+  float v1 = mr->r[1] / 100.0f;
+
+  mr->r[0] = (int){v0 * max}; 
+  mr->r[1] = (int){v1 * max};
 }
 
 void add_hills(MapGraph *map, MRange num, MRange height, MRange x, MRange y) {
@@ -37,15 +41,13 @@ void add_hills(MapGraph *map, MRange num, MRange height, MRange x, MRange y) {
     int limit = 0;
     int h = r_rand(height);
 
-    x = r_to_map(x, map->texture_size.x);
-    y = r_to_map(y, map->texture_size.y);
-
-    printf("x1: %f, x2: %f\n", x.r[0], x.r[1]);
-    printf("y1: %f, y2: %f\n", y.r[0], y.r[1]);
-    printf("================================\n");
+    MRange xp = x;
+    MRange yp = y;
+    r_to_map(&xp, map->texture_size.x);
+    r_to_map(&yp, map->texture_size.y);
 
     do {
-      Vector2 randPos = { r_rand(x), r_rand(y) };
+      Vector2 randPos = { r_rand(xp), r_rand(yp) };
       start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
@@ -88,11 +90,13 @@ void add_pits(MapGraph *map, MRange num, MRange height, MRange x, MRange y) {
     int limit = 0;
     int h = limit_h(r_rand(height));
 
-    x = r_to_map(x, map->texture_size.x);
-    y = r_to_map(y, map->texture_size.y);
+    MRange xp = x;
+    MRange yp = y;
+    r_to_map(&xp, map->texture_size.x);
+    r_to_map(&yp, map->texture_size.y);
 
     do {
-      Vector2 randPos = { r_rand(x), r_rand(y) };
+      Vector2 randPos = { r_rand(xp), r_rand(yp) };
       start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (map->c[start].elevation < LAND_THRESHOLD && limit < 50);
@@ -323,12 +327,14 @@ void add_mount_range(MapGraph *map, MRange num, MRange length, MRange height, MR
     if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
     int h = limit_h(r_rand(height));
 
-    x = r_to_map(x, map->texture_size.x);
-    y = r_to_map(y, map->texture_size.y);
+    MRange xp = x;
+    MRange yp = y;
+    r_to_map(&xp, map->texture_size.x);
+    r_to_map(&yp, map->texture_size.y);
 
     /* Ridge head: a random point inside the requested area. */
     int start, end;
-    Vector2 start_pos = { r_rand(x), r_rand(y) };
+    Vector2 start_pos = { r_rand(xp), r_rand(yp) };
 
     float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
     Vector2 move_vector = {
@@ -394,12 +400,14 @@ void add_through_range(MapGraph *map, MRange num, MRange length, MRange height, 
     if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
     int h = limit_h(r_rand(height));
 
-    x = r_to_map(x, map->texture_size.x);
-    y = r_to_map(y, map->texture_size.y);
+    MRange xp = x;
+    MRange yp = y;
+    r_to_map(&xp, map->texture_size.x);
+    r_to_map(&yp, map->texture_size.y);
 
     /* Ridge head: a random point inside the requested area. */
     int start, end;
-    Vector2 start_pos = { r_rand(x), r_rand(y) };
+    Vector2 start_pos = { r_rand(xp), r_rand(yp) };
 
     float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
     Vector2 move_vector = {
@@ -507,21 +515,34 @@ void add_strip(MapGraph *map, MRange height, MRange width, int horizontal) {
 
 }
 
-void map_heights_assign(MapGraph *map) {
-
-  //Normal Continent
+// TYPES OF MAPS
+void map_continet(MapGraph *map) {
   add_hills(map, ra(8, 12), ra(50, 80), ra(5, 50), ra(10, 90));
   add_hills(map, ra(8, 12), ra(50, 80), ra(50, 95), ra(10, 90));
-  // add_pits(map, ra(1, 3), ra(60, 100), ra(10, 90), ra(10, 90));
-  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(5, 50), ra(10, 90));
-  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(50, 95), ra(10, 90));
-  // add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(5, 95), ra(10, 90));
-  // add_strip(map, ra(50, 80), ra(2, 6), 0);
-  // multiply_elevation(map, 0.9, ra(80, 100));
-  // mask_elevation(map, 1.5f);
+  add_pits(map, ra(1, 3), ra(60, 100), ra(10, 90), ra(10, 90));
+  add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(5, 50), ra(10, 90));
+  add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(50, 95), ra(10, 90));
+  add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(5, 95), ra(10, 90));
+  add_strip(map, ra(50, 80), ra(2, 6), 0);
+  multiply_elevation(map, 0.9, ra(80, 100));
+  mask_elevation(map, 1.5f);
   // smooth_coast_elevation(map, 2);
   // smooth_elevation(map, 1);
   // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
+}
+void map_atoll(MapGraph *map) {
+  add_hills(map, ra(1, 1), ra(80,100), ra(50,60), ra(45,55));
+  add_hills(map, ra(1, 2), ra(30,50), ra(25,75), ra(30,70));
+  add_hills(map, ra(0, 1), ra(30,50), ra(25,35), ra(30,70));
+  smooth_elevation(map, 1);
+  multiply_elevation(map, 0.2, ra(30,100));
+  add_hills(map, ra(0, 1), ra(10,20), ra(50,60), ra(48,52));
+}
+
+void map_heights_assign(MapGraph *map) {
+
+  //Normal Continent
+  // map_continet(map);
 
   //Invert Miss
   // add_elevation(map, 40, 0);
@@ -536,13 +557,7 @@ void map_heights_assign(MapGraph *map) {
   
 
   // Atoll
-  // add_hills(map, ra(1, 1), ra(75,80), ra(50,60), ra(45,55));
-  // add_hills(map, ra(1, 2), ra(30,50), ra(25,75), ra(30,70));
-  // add_hills(map, ra(0, 1), ra(30,50), ra(25,35), ra(30,70));
-  // smooth_elevation(map, 1);
-  // multiply_elevation(map, 0.2, ra(25,100));
-  // add_hills(map, ra(0, 1), ra(10,20), ra(50,60), ra(48,52));
-
+  map_atoll(map);
 
 }
 

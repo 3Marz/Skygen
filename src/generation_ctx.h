@@ -14,6 +14,7 @@ typedef struct {
   MapGraph *map;
   Terrain terrain;
   Camera camera;
+  float camera_speed; /* free-camera movement speed, world units per second */
 
   int draw_mode;
   int regenerate;

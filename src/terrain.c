@@ -35,7 +35,7 @@ void tgrid_generate(TGrid *grid, MapGraph *map) {
 
       float h = map_heights_evaluate(map, normalized_pos);
 
-      grid->vert[x][y] = (Vector3){px, h*4, pz};
+      grid->vert[x][y] = (Vector3){px, h*20, pz};
     }
   }
 
@@ -44,8 +44,10 @@ void tgrid_generate(TGrid *grid, MapGraph *map) {
 void tgrid_free(TGrid *grid) {
   for (int i = 0; i < grid->size.x; i++) {
     free(grid->vert[i]);
+    grid->vert[i] = NULL;
   }
   free(grid->vert);
+  grid->vert = NULL;
 }
 
 void generate_heightmap(Terrain *terr, MapGraph *map) {
@@ -75,7 +77,7 @@ void terrain_generate(Terrain *terr, MapGraph *map) {
 
   terrain_free(terr);
 
-  tgrid_init(&terr->grid, (Vector2){(int)map->texture_size.x/4, (int)map->texture_size.y/4}, 10.0f);
+  tgrid_init(&terr->grid, (Vector2){floorf(map->texture_size.x/3), floorf(map->texture_size.y/3)}, 15.0f);
   tgrid_generate(&terr->grid, map);
   
   Mesh tm = { 0 };
@@ -123,7 +125,7 @@ void terrain_draw(Terrain *terr) {
   float sizex = (terr->grid.size.x*terr->grid.spacing)-terr->grid.spacing,
         sizey = (terr->grid.size.y*terr->grid.spacing)-terr->grid.spacing;
 
-  DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 0.5f, WHITE);
+  DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 2.0f, WHITE);
 
 }
 
