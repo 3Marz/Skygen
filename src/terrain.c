@@ -2,8 +2,6 @@
 #include "terrain.h"
 #include "map_gen.h"
 #include "map_gen_height.h"
-#include "utils.h"
-#include <math.h>
 #include <raylib.h>
 #include <raymath.h>
 #include <stdlib.h>
@@ -36,9 +34,8 @@ void tgrid_generate(TGrid *grid, MapGraph *map) {
       };
 
       float h = map_heights_evaluate(map, normalized_pos);
-      // printv(&h, T_FLOAT);
 
-      grid->vert[x][y] = (Vector3){px, h, pz};
+      grid->vert[x][y] = (Vector3){px, h*4, pz};
     }
   }
 
@@ -76,13 +73,14 @@ void tmesh_set_texcord(Mesh *tm, int i, float x, float y) {
 
 void terrain_generate(Terrain *terr, MapGraph *map) {
 
-  tgrid_init(&terr->grid, (Vector2){100, 100}, 1.0f);
+  terrain_free(terr);
+
+  tgrid_init(&terr->grid, (Vector2){(int)map->texture_size.x/4, (int)map->texture_size.y/4}, 10.0f);
   tgrid_generate(&terr->grid, map);
   
   Mesh tm = { 0 };
   tm.triangleCount = 2 * ((terr->grid.size.x-1) * (terr->grid.size.y-1)) ;
   if (tm.triangleCount <= 0) return;
-  // tm.triangleCount = 2;
   tm.vertexCount = tm.triangleCount * 3;
 
   tm.vertices = (float *)MemAlloc(tm.vertexCount * 3 * sizeof(float));
@@ -107,14 +105,12 @@ void terrain_generate(Terrain *terr, MapGraph *map) {
     tm.normals[i*3  ] = 0.0f;
     tm.normals[i*3+1] = 1.0f;
     tm.normals[i*3+2] = 0.0f;
-  }
 
-  tmesh_set_texcord(&tm, 0, 0.0f, 0.0f);
-  tmesh_set_texcord(&tm, 1, 0.0f, 0.0f);
-  tmesh_set_texcord(&tm, 2, 0.0f, 0.0f);
-  tmesh_set_texcord(&tm, 3, 0.0f, 0.0f);
-  tmesh_set_texcord(&tm, 4, 0.0f, 0.0f);
-  tmesh_set_texcord(&tm, 5, 0.0f, 0.0f);
+    tm.texcoords[i*2    ] = 0.0f;
+    tm.texcoords[i*2 + 1] = 0.0f;
+    // tmesh_set_texcord(&tm, i*2  , 0.0f, 0.0f);
+    // tmesh_set_texcord(&tm, i*2+1, 0.0f, 0.0f);
+  }
 
   UploadMesh(&tm, false);
 
@@ -127,7 +123,7 @@ void terrain_draw(Terrain *terr) {
   float sizex = (terr->grid.size.x*terr->grid.spacing)-terr->grid.spacing,
         sizey = (terr->grid.size.y*terr->grid.spacing)-terr->grid.spacing;
 
-  DrawModelWires(terr->model, (Vector3){-(sizex/2), 0.0f, -(sizey/2)}, 1.0f, WHITE);
+  DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 0.5f, WHITE);
 
 }
 

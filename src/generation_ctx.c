@@ -9,7 +9,14 @@ void regenerate_map(GenerationCtx *ctx) {
     map_graph_generate(ctx->map, ctx->map_params);
   } else if (ctx->regenerate == 2) {
     map_graph_generate_heightfield(ctx->map);
+  } else if (ctx->regenerate == 3) {
+    terrain_generate(&ctx->terrain, ctx->map);
   }
+
+  if (ctx->draw_mode == MODE_3D) {
+    terrain_generate(&ctx->terrain, ctx->map);
+  }
+
   ctx->regenerate = 0;
 }
 
@@ -25,7 +32,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   // Camera
   ctx->camera = (Camera){
     .fovy = 45.0f,
-    .position = (Vector3){18.0f, 21.0f, 18.0f},
+    .position = (Vector3){1000.0f, 400.0f, 1000.0f},
     .target = (Vector3){0.0f, 0.0f, 0.0f},
     .up = (Vector3){0.0f, 1.0f, 0.0f},
     .projection = CAMERA_PERSPECTIVE,
@@ -37,6 +44,9 @@ void gen_ctx_init(GenerationCtx *ctx) {
     .relax = 1,
   };
 
+  ctx->regenerate = 0;
+  ctx->draw_mode = MODE_2D;
+
   // Voronoi Map
   MapGraph *v_map = map_graph_init(ctx->map_params);
   map_graph_generate(v_map, ctx->map_params);
@@ -44,10 +54,10 @@ void gen_ctx_init(GenerationCtx *ctx) {
 
   ctx->terrain = (Terrain){ 0 };
   terrain_init(&ctx->terrain);
-  terrain_generate(&ctx->terrain, ctx->map);
 
-  ctx->regenerate = 0;
-  ctx->draw_mode = MODE_3D;
+  if (ctx->draw_mode == MODE_3D) 
+    terrain_generate(&ctx->terrain, ctx->map);
+
 
   // DisableCursor();
 
@@ -57,6 +67,7 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
   if (IsKeyPressed(KEY_H)) { ctx->regenerate = 2; }
   if (IsKeyPressed(KEY_M)) { ctx->draw_mode = ctx->draw_mode == MODE_2D ? MODE_3D : MODE_2D; }
+  if (IsKeyPressed(KEY_N)) { ctx->regenerate = 3; }
   if (IsKeyPressed(KEY_SPACE)) { ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_UP)) { ctx->map_params.n_sites += 500; ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_DOWN)) { ctx->map_params.n_sites -= 500; ctx->regenerate = 1; }

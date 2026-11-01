@@ -9,10 +9,25 @@
 #include "map_gen.h"
 #include "utils.h"
 
+typedef struct {
+  float r[2];
+} MRange;
 
-void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
+MRange ra(int v0, int v1) {
+  return (MRange){{v0, v1}};
+}
+int r_rand(MRange mr) {
+  return GetRandomValue(mr.r[0], mr.r[1]); 
+}
+MRange r_to_map(MRange mr, int max) {
+  mr.r[0]/=100; mr.r[1]/=100;
+  mr.r[0]*=(float)max; mr.r[1]*=(float)max;
+  return mr;
+}
 
-  int n_hill = rand_range(num);
+void add_hills(MapGraph *map, MRange num, MRange height, MRange x, MRange y) {
+
+  int n_hill = r_rand(num);
 
   for (int i = 0; i < n_hill; i++) {
 
@@ -20,10 +35,17 @@ void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
     memset(change, 0, sizeof(change));
     int start;
     int limit = 0;
-    int h = rand_range(height);
+    int h = r_rand(height);
+
+    x = r_to_map(x, map->texture_size.x);
+    y = r_to_map(y, map->texture_size.y);
+
+    printf("x1: %f, x2: %f\n", x.r[0], x.r[1]);
+    printf("y1: %f, y2: %f\n", y.r[0], y.r[1]);
+    printf("================================\n");
 
     do {
-      Vector2 randPos = { rand_range(x), rand_range(y) };
+      Vector2 randPos = { r_rand(x), r_rand(y) };
       start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (start >= 0 && map->c[start].elevation + h > 90 && limit < 50);
@@ -54,9 +76,9 @@ void add_hills(MapGraph *map, int num[], int height[], int x[], int y[]) {
   }
 }
 
-void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
+void add_pits(MapGraph *map, MRange num, MRange height, MRange x, MRange y) {
 
-  int n_pit = rand_range(num);
+  int n_pit = r_rand(num);
 
   for (int i = 0; i < n_pit; i++) {
 
@@ -64,10 +86,13 @@ void add_pits(MapGraph *map, int num[], int height[], int x[], int y[]) {
     memset(used, 0, sizeof(used));
     int start;
     int limit = 0;
-    int h = limit_h(rand_range(height));
+    int h = limit_h(r_rand(height));
+
+    x = r_to_map(x, map->texture_size.x);
+    y = r_to_map(y, map->texture_size.y);
 
     do {
-      Vector2 randPos = { rand_range(x), rand_range(y) };
+      Vector2 randPos = { r_rand(x), r_rand(y) };
       start = map_graph_get_closest_center(map, randPos);
       limit++;
     } while (map->c[start].elevation < LAND_THRESHOLD && limit < 50);
@@ -106,10 +131,10 @@ void add_elevation(MapGraph *map, int value, int land_only) {
   }
 }
 
-void multiply_elevation(MapGraph *map, float value, int height_mask[]) {
+void multiply_elevation(MapGraph *map, float value, MRange height_mask) {
   for (int i = 0; i < map->nc; i++) {
     int h = map->c[i].elevation;
-    if (h >= height_mask[0] && h <= height_mask[1]) {
+    if (h >= height_mask.r[0] && h <= height_mask.r[1]) {
       map->c[i].elevation = limit_h(map->c[i].elevation * value);
     }
   }
@@ -286,21 +311,24 @@ IntArray get_cell_range(MapGraph *map, int cur, int end, float randomnes, int ex
   return range;
 }
 
-void add_mount_range(MapGraph *map, int num[], int length[], int height[], int x[], int y[]) {
+void add_mount_range(MapGraph *map, MRange num, MRange length, MRange height, MRange x, MRange y) {
 
-  int n_range = rand_range(num);
+  int n_range = r_rand(num);
 
   for (int i = 0; i < n_range; i++) {
 
     // Getting the start, end and range
-    int len = rand_range(length) * map->spacing;
+    int len = r_rand(length) * map->spacing;
     if (len < 1) len = 1;
     if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
-    int h = limit_h(rand_range(height));
+    int h = limit_h(r_rand(height));
+
+    x = r_to_map(x, map->texture_size.x);
+    y = r_to_map(y, map->texture_size.y);
 
     /* Ridge head: a random point inside the requested area. */
     int start, end;
-    Vector2 start_pos = { rand_range(x), rand_range(y) };
+    Vector2 start_pos = { r_rand(x), r_rand(y) };
 
     float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
     Vector2 move_vector = {
@@ -354,21 +382,24 @@ void add_mount_range(MapGraph *map, int num[], int length[], int height[], int x
   }
 }
 
-void add_through_range(MapGraph *map, int num[], int length[], int height[], int x[], int y[]) {
+void add_through_range(MapGraph *map, MRange num, MRange length, MRange height, MRange x, MRange y) {
 
-  int n_range = rand_range(num);
+  int n_range = r_rand(num);
 
   for (int i = 0; i < n_range; i++) {
 
     // Getting the start, end and range
-    int len = rand_range(length) * map->spacing;
+    int len = r_rand(length) * map->spacing;
     if (len < 1) len = 1;
     if (len > map->nc) len = map->nc; /* a ridge can't be longer than the map */
-    int h = limit_h(rand_range(height));
+    int h = limit_h(r_rand(height));
+
+    x = r_to_map(x, map->texture_size.x);
+    y = r_to_map(y, map->texture_size.y);
 
     /* Ridge head: a random point inside the requested area. */
     int start, end;
-    Vector2 start_pos = { rand_range(x), rand_range(y) };
+    Vector2 start_pos = { r_rand(x), r_rand(y) };
 
     float dir_angle = GetRandomValue(0, 360) * (PI/180.0f);
     Vector2 move_vector = {
@@ -422,7 +453,7 @@ void add_through_range(MapGraph *map, int num[], int length[], int height[], int
   }
 }
 
-void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
+void add_strip(MapGraph *map, MRange height, MRange width, int horizontal) {
 
   int start, end;
   Vector2 start_pos, end_pos = { 0 };
@@ -438,10 +469,10 @@ void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
   start = map_graph_get_closest_center(map, start_pos);
   end = map_graph_get_closest_center(map, end_pos);
 
-  IntArray range = get_cell_range(map, start, end, 0.1f, rand_range(width));
+  IntArray range = get_cell_range(map, start, end, 0.1f, r_rand(width));
   IntArray queue = int_array_new(range.size);
 
-  int h = limit_h(rand_range(height));
+  int h = limit_h(r_rand(height));
   int change[map->nc];
   memset(&change, 0, sizeof(change));
 
@@ -479,33 +510,44 @@ void add_strip(MapGraph *map, int height[], int width[], int horizontal) {
 void map_heights_assign(MapGraph *map) {
 
   //Normal Continent
-  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){20, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
-  add_hills(map, (int[]){8, 12}, (int[]){50, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-20}, (int[]){50, map->texture_size.y-50});
-  add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){50, map->texture_size.x/2}, (int[]){50, map->texture_size.y-50});
-  add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 80}, (int[]){map->texture_size.x/2, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  add_strip(map, (int[]){50, 80}, (int[]){2, 6}, 0);
-  multiply_elevation(map, 0.9, (int[]){80, 100});
-  mask_elevation(map, 1.5f);
-  smooth_coast_elevation(map, 2);
+  add_hills(map, ra(8, 12), ra(50, 80), ra(5, 50), ra(10, 90));
+  add_hills(map, ra(8, 12), ra(50, 80), ra(50, 95), ra(10, 90));
+  // add_pits(map, ra(1, 3), ra(60, 100), ra(10, 90), ra(10, 90));
+  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(5, 50), ra(10, 90));
+  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 80), ra(50, 95), ra(10, 90));
+  // add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(5, 95), ra(10, 90));
+  // add_strip(map, ra(50, 80), ra(2, 6), 0);
+  // multiply_elevation(map, 0.9, ra(80, 100));
+  // mask_elevation(map, 1.5f);
+  // smooth_coast_elevation(map, 2);
   // smooth_elevation(map, 1);
   // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
 
   //Invert Miss
   // add_elevation(map, 40, 0);
   // mask_elevation(map, 0.2f);
-  // add_hills(map, (int[]){10, 15}, (int[]){50, 80}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_pits(map, (int[]){3, 5}, (int[]){60, 100}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_mount_range(map, (int[]){1, 4}, (int[]){8, 40}, (int[]){40, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // add_through_range(map, (int[]){1, 2}, (int[]){8, 40}, (int[]){45, 50}, (int[]){50, map->texture_size.x-50}, (int[]){50, map->texture_size.y-50});
-  // multiply_elevation(map, 0.8, (int[]){20, 100});
-  // multiply_elevation(map, 0.7, (int[]){90, 100});
+  // add_hills(map, ra(10, 15), ra(50, 80), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
+  // add_pits(map, ra(3, 5), ra(60, 100), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
+  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 50), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
+  // add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
+  // multiply_elevation(map, 0.8, ra(20, 100));
+  // multiply_elevation(map, 0.7, ra(90, 100));
   // invert_elevation(map, 80);
+  
+
+  // Atoll
+  // add_hills(map, ra(1, 1), ra(75,80), ra(50,60), ra(45,55));
+  // add_hills(map, ra(1, 2), ra(30,50), ra(25,75), ra(30,70));
+  // add_hills(map, ra(0, 1), ra(30,50), ra(25,35), ra(30,70));
+  // smooth_elevation(map, 1);
+  // multiply_elevation(map, 0.2, ra(25,100));
+  // add_hills(map, ra(0, 1), ra(10,20), ra(50,60), ra(48,52));
+
+
 }
 
 float map_heights_evaluate(MapGraph *map, Vector2 pos) {
-  float power = 1.0f;
+  float power = 2.0f;
 
   // denormalize pos 
   Vector2 to_map = {
@@ -514,6 +556,8 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
   };
 
   int center = map_graph_get_closest_center(map, to_map);
+
+  // return map->c[center].elevation;
 
   int nverts = map->c[center].ncorners;
   int verts[nverts];
@@ -526,14 +570,14 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
   float weighted_sum = 0.0f;
   for (int c = 0; c < nverts; c++) {
 
-    Vector2 cp = map->q[c].pos;
-    float dist = Vector2DistanceSqr(to_map, cp);
+    Vector2 cp = map->q[verts[c]].pos;
+    float dist = Vector2Distance(to_map, cp);
 
-    if (dist < 0.00001f) return map->q[c].elevation;
+    if (dist < 0.00001f) return map->q[verts[c]].elevation;
 
-    float weight = 1 / powf(dist, power);
+    float weight = 1.0f / powf(dist, power);
 
-    weighted_sum += (weight * map->q[c].elevation);
+    weighted_sum += (weight * map->q[verts[c]].elevation);
     total_weight += weight;
   }
 
