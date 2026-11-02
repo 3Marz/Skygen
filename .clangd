@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - -I/include
+    - -Isrc
+    - -Ilib
+    - -I.
+    - --target=x86_64-w64-mingw32

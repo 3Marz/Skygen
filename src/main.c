@@ -1,6 +1,6 @@
 
-#include "generation_ctx.h"
 #include <raylib.h>
+#include "generation_ctx.h"
 
 int main(void) {
 

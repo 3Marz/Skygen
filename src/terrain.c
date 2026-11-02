@@ -9,6 +9,7 @@
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
+  grid->height_power = 20;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -19,7 +20,7 @@ void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
 }
 
-void tgrid_generate(TGrid *grid, MapGraph *map) {
+void tgrid_generate(TGrid *grid, MapGraph *map, int no_map_lookup) {
   if (!grid->vert) return;
 
   for (int x = 0; x < grid->size.x; x++) {
@@ -28,14 +29,19 @@ void tgrid_generate(TGrid *grid, MapGraph *map) {
       int px = x * grid->spacing; 
       int pz = y * grid->spacing; 
 
-      Vector2 normalized_pos = {
-        Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing),
-        Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing),
-      };
+      float h;
+      if (!no_map_lookup) {
+        Vector2 normalized_pos = {
+          Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing),
+          Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing),
+        };
 
-      float h = map_heights_evaluate(map, normalized_pos);
+        h = map_heights_evaluate(map, normalized_pos);
+      } else {
+        h = grid->vert[x][y].y;
+      }
 
-      grid->vert[x][y] = (Vector3){px, h*20, pz};
+      grid->vert[x][y] = (Vector3){px, h*grid->height_power, pz};
     }
   }
 
@@ -48,10 +54,6 @@ void tgrid_free(TGrid *grid) {
   }
   free(grid->vert);
   grid->vert = NULL;
-}
-
-void generate_heightmap(Terrain *terr, MapGraph *map) {
-
 }
 
 void terrain_init(Terrain *terr) {
@@ -73,12 +75,12 @@ void tmesh_set_texcord(Mesh *tm, int i, float x, float y) {
   tm->texcoords[i*2 + 1] = y;
 }
 
-void terrain_generate(Terrain *terr, MapGraph *map) {
+void terrain_generate(Terrain *terr, MapGraph *map, int no_map_lookup) {
 
   terrain_free(terr);
 
-  tgrid_init(&terr->grid, (Vector2){floorf(map->texture_size.x/3), floorf(map->texture_size.y/3)}, 15.0f);
-  tgrid_generate(&terr->grid, map);
+  tgrid_init(&terr->grid, (Vector2){floorf(map->texture_size.x/4), floorf(map->texture_size.y/4)}, 20.0f);
+  tgrid_generate(&terr->grid, map, no_map_lookup);
   
   Mesh tm = { 0 };
   tm.triangleCount = 2 * ((terr->grid.size.x-1) * (terr->grid.size.y-1)) ;

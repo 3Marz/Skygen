@@ -6,6 +6,7 @@
 
 typedef struct {
 
+  float height_power;
   float spacing;
   Vector2 size; // number of verts along x and y
 
@@ -23,11 +24,11 @@ typedef struct {
 } Terrain;
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing);
-void tgrid_generate(TGrid *grid, MapGraph *map);
+void tgrid_generate(TGrid *grid, MapGraph *map, int no_map_lookup);
 void tgrid_free(TGrid *grid);
 
 void terrain_init(Terrain *terr);
-void terrain_generate(Terrain *terr, MapGraph *map);
+void terrain_generate(Terrain *terr, MapGraph *map, int no_map_lookup);
 void terrain_draw(Terrain *terr);
 void terrain_free(Terrain *terr);
 

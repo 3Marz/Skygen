@@ -542,7 +542,7 @@ void map_atoll(MapGraph *map) {
 void map_heights_assign(MapGraph *map) {
 
   //Normal Continent
-  // map_continet(map);
+  map_continet(map);
 
   //Invert Miss
   // add_elevation(map, 40, 0);
@@ -557,7 +557,7 @@ void map_heights_assign(MapGraph *map) {
   
 
   // Atoll
-  map_atoll(map);
+  // map_atoll(map);
 
 }
 
@@ -583,16 +583,19 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
 
   float total_weight = 0.0f;
   float weighted_sum = 0.0f;
-  for (int c = 0; c < nverts; c++) {
 
-    Vector2 cp = map->q[verts[c]].pos;
+  for (int c = 0; c < map->c[center].ncorners; c++) {
+    int qi = map->c[center].corners[c];
+    MapCorner q = map->q[qi];
+
+    Vector2 cp = q.pos;
     float dist = Vector2Distance(to_map, cp);
 
-    if (dist < 0.00001f) return map->q[verts[c]].elevation;
+    if (dist < 0.00001f) return q.elevation;
 
     float weight = 1.0f / powf(dist, power);
 
-    weighted_sum += (weight * map->q[verts[c]].elevation);
+    weighted_sum += (weight * q.elevation);
     total_weight += weight;
   }
 

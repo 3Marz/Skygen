@@ -11,11 +11,13 @@ void regenerate_map(GenerationCtx *ctx) {
   } else if (ctx->regenerate == 2) {
     map_graph_generate_heightfield(ctx->map);
   } else if (ctx->regenerate == 3) {
-    terrain_generate(&ctx->terrain, ctx->map);
+    terrain_generate(&ctx->terrain, ctx->map, 0);
+  } else if (ctx->regenerate == 4) {
+    terrain_generate(&ctx->terrain, ctx->map, 1);
   }
 
-  if (ctx->draw_mode == MODE_3D && ctx->regenerate != 3) {
-    terrain_generate(&ctx->terrain, ctx->map);
+  if (ctx->draw_mode == MODE_3D && (ctx->regenerate != 3 || ctx->regenerate != 4)) {
+    terrain_generate(&ctx->terrain, ctx->map, 0);
   }
 
   ctx->regenerate = 0;
@@ -61,7 +63,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   terrain_init(&ctx->terrain);
 
   if (ctx->draw_mode == MODE_3D) 
-    terrain_generate(&ctx->terrain, ctx->map);
+    terrain_generate(&ctx->terrain, ctx->map, 0);
 
 
   // DisableCursor();
@@ -113,6 +115,8 @@ void gen_ctx_update(GenerationCtx *ctx) {
   if (IsKeyPressed(KEY_SPACE)) { ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_UP)) { ctx->map_params.n_sites += 500; ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_DOWN)) { ctx->map_params.n_sites -= 500; ctx->regenerate = 1; }
+  if (IsKeyPressed(KEY_LEFT)) { ctx->terrain.grid.height_power += 5; ctx->regenerate = 4; }
+  if (IsKeyPressed(KEY_RIGHT)) { ctx->terrain.grid.height_power -= 5; ctx->regenerate = 4; }
 
   if (ctx->regenerate) {
     regenerate_map(ctx);
