@@ -7,6 +7,7 @@ int main(void) {
   GenerationCtx gen_ctx = { 0 };
   gen_ctx_init(&gen_ctx);
 
+
   while (!WindowShouldClose()) {
 
     // Update

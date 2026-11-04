@@ -611,7 +611,7 @@ MapGraph *map_graph_init(MapParams p) {
   map->dirty = 1;
 
   //TODO blob power determint by number of cells
-  map->blob_power = 0.97f;
+  map->blob_power = 0.96f;
 
   return map;
 }

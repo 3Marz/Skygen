@@ -20,6 +20,7 @@ void regenerate_map(GenerationCtx *ctx) {
     terrain_generate(&ctx->terrain, ctx->map, 0);
   }
 
+
   ctx->regenerate = 0;
 }
 
@@ -31,6 +32,8 @@ void gen_ctx_init(GenerationCtx *ctx) {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
+
+  SetRandomSeed(2);
 
   // Camera
   ctx->camera = (Camera){
@@ -47,7 +50,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
 
   ctx->map_params = (MapParams){
     .map_size = (Vector2){1200, 800},
-    .n_sites = 10000,
+    .n_sites = 5000,
     .relax = 1,
   };
 

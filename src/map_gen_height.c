@@ -566,20 +566,13 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
 
   // denormalize pos 
   Vector2 to_map = {
-    pos.x * map->texture_size.x,
-    pos.y * map->texture_size.y
+    pos.x,// * map->texture_size.x,
+    pos.y //* map->texture_size.y
   };
 
   int center = map_graph_get_closest_center(map, to_map);
 
   // return map->c[center].elevation;
-
-  int nverts = map->c[center].ncorners;
-  int verts[nverts];
-  for (int i = 0; i < nverts; i++) {
-    verts[i] = map->c[center].corners[i];
-  }
-
 
   float total_weight = 0.0f;
   float weighted_sum = 0.0f;

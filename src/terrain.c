@@ -4,12 +4,13 @@
 #include "map_gen_height.h"
 #include <raylib.h>
 #include <raymath.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
-  grid->height_power = 20;
+  grid->height_power = 12.0f;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -23,20 +24,24 @@ void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 void tgrid_generate(TGrid *grid, MapGraph *map, int no_map_lookup) {
   if (!grid->vert) return;
 
-  for (int x = 0; x < grid->size.x; x++) {
-    for (int y = 0; y < grid->size.y; y++) {
+  int chunck_x = 1;
+  int chunck_y = 0;
+  int sp = 64;
+
+  for (int x = chunck_x*sp; x < (chunck_x*sp)+grid->size.x; x++) {
+    for (int y = chunck_y*sp; y < (chunck_y*sp)+grid->size.y; y++) {
 
       int px = x * grid->spacing; 
       int pz = y * grid->spacing; 
 
       float h;
       if (!no_map_lookup) {
-        Vector2 normalized_pos = {
-          Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing),
-          Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing),
-        };
-
-        h = map_heights_evaluate(map, normalized_pos);
+        // Vector2 normalized_pos = {
+        //   Normalize(px, 0, map->texture_size.x),
+        //   Normalize(pz, 0, map->texture_size.y),
+        // };
+        printf("X: %i, Y: %i\n", x, y);
+        h = map_heights_evaluate(map, (Vector2){x, y});
       } else {
         h = grid->vert[x][y].y;
       }
@@ -79,7 +84,7 @@ void terrain_generate(Terrain *terr, MapGraph *map, int no_map_lookup) {
 
   terrain_free(terr);
 
-  tgrid_init(&terr->grid, (Vector2){floorf(map->texture_size.x/4), floorf(map->texture_size.y/4)}, 20.0f);
+  tgrid_init(&terr->grid, (Vector2){64.0f, 64.0f}, map->spacing*2);
   tgrid_generate(&terr->grid, map, no_map_lookup);
   
   Mesh tm = { 0 };
