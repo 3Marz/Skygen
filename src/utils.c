@@ -50,7 +50,7 @@ IntArray int_array_new(size_t initial_capacity) {
 
 int int_array_at(IntArray *arr, int idx) {
   if (idx >= arr->size || idx >= arr->capacity) {
-    printf("Error: Accessing uninitialize memory on int array with size: %llu, index:%i\n", arr->size, idx);
+    printf("Error: Accessing uninitialize memory on int array with size: %llu, index:%i\n", (unsigned long long)arr->size, idx);
     return INVALID_INDEX;
   }
   return arr->data[idx];

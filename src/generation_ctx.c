@@ -1,6 +1,7 @@
 
 #include "generation_ctx.h"
 #include "map_gen.h"
+#include "map_gen_height.h"
 #include "terrain.h"
 #include <raylib.h>
 #include <raymath.h>
@@ -22,6 +23,23 @@ void regenerate_map(GenerationCtx *ctx) {
 
 
   ctx->regenerate = 0;
+}
+
+void export_height_map(GenerationCtx *ctx) {
+  Image img = GenImageColor(ctx->map->texture_size.x, ctx->map->texture_size.y, BLACK);
+  for (int i = 0; i < ctx->map->texture_size.x; i++) {
+    for (int j = 0; j < ctx->map->texture_size.y; j++) {
+
+      float h = map_heights_evaluate(ctx->map, (Vector2){i, j});
+      h = (h/100.0f)*225;
+      Color hc = {h, h, h, 225};
+
+      ImageDrawPixel(&img, i, j, hc);
+    }
+  }
+  ImageBlurGaussian(&img, 1);
+  ExportImage(img, "heightmap.png");
+  UnloadImage(img);
 }
 
 void gen_ctx_init(GenerationCtx *ctx) {
@@ -120,6 +138,8 @@ void gen_ctx_update(GenerationCtx *ctx) {
   if (IsKeyPressed(KEY_DOWN)) { ctx->map_params.n_sites -= 500; ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_LEFT)) { ctx->terrain.grid.height_power += 5; ctx->regenerate = 4; }
   if (IsKeyPressed(KEY_RIGHT)) { ctx->terrain.grid.height_power -= 5; ctx->regenerate = 4; }
+
+  if (IsKeyPressed(KEY_P)) { export_height_map(ctx); }
 
   if (ctx->regenerate) {
     regenerate_map(ctx);

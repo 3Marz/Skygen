@@ -566,7 +566,7 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
 
   // denormalize pos 
   Vector2 to_map = {
-    pos.x,// * map->texture_size.x,
+    pos.x, //* map->texture_size.x,
     pos.y //* map->texture_size.y
   };
 
