@@ -538,28 +538,34 @@ void map_atoll(MapGraph *map) {
   multiply_elevation(map, 0.2, ra(30,100));
   add_hills(map, ra(0, 1), ra(10,20), ra(50,60), ra(48,52));
 }
+void map_invert_shit(MapGraph *map) {
+  add_elevation(map, 40, 0);
+  mask_elevation(map, 1.4f);
+
+  add_hills(map, ra(10, 15), ra(50, 80), ra(5, 95), ra(5, 95));
+  add_pits(map, ra(3, 5), ra(60, 100), ra(5, 95), ra(5, 95));
+  add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 50), ra(5, 95), ra(5, 95));
+  add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(5, 95), ra(5, 95));
+  //
+  // multiply_elevation(map, 0.8, ra(20, 100));
+  // multiply_elevation(map, 0.7, ra(90, 100));
+  invert_elevation(map, 50);
+
+  add_hills(map, ra(8, 12), ra(30, 80), ra(10, 90), ra(10, 90));
+  smooth_coast_elevation(map, 2);
+}
 
 void map_heights_assign(MapGraph *map) {
 
   float r = rnd();
-  if (r > 0.5f) {
-    //Normal Continent
+  if (r > 0.6f) {
     map_continet(map);
-  } else {
-    // Atoll
+  } else if (r > 0.3f) {
     map_atoll(map);
+  } else{ 
+    map_invert_shit(map);
   }
 
-  //Invert Miss
-  // add_elevation(map, 40, 0);
-  // mask_elevation(map, 0.2f);
-  // add_hills(map, ra(10, 15), ra(50, 80), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
-  // add_pits(map, ra(3, 5), ra(60, 100), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
-  // add_mount_range(map, ra(1, 4), ra(8, 40), ra(40, 50), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
-  // add_through_range(map, ra(1, 2), ra(8, 40), ra(45, 50), ra(50, map->texture_size.x-50), ra(50, map->texture_size.y-50));
-  // multiply_elevation(map, 0.8, ra(20, 100));
-  // multiply_elevation(map, 0.7, ra(90, 100));
-  // invert_elevation(map, 80);
 }
 
 float map_heights_evaluate(MapGraph *map, Vector2 pos) {
