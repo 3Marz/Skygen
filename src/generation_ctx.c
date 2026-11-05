@@ -2,9 +2,11 @@
 #include "generation_ctx.h"
 #include "map_gen.h"
 #include "map_gen_height.h"
+#include "../include/sds.h"
 #include "terrain.h"
 #include <raylib.h>
 #include <raymath.h>
+#include <limits.h>
 
 void regenerate_map(GenerationCtx *ctx) {
   if (ctx->regenerate == 1) {
@@ -39,7 +41,11 @@ void export_height_map(GenerationCtx *ctx) {
     }
   }
   ImageBlurGaussian(&img, 1);
-  ExportImage(img, "heightmap.png");
+
+  sds path = sdsnew("public/");
+  path = sdscatprintf(path, "height_seed_%i.png", ctx->rand_seed);
+  ExportImage(img, path);
+  sdsfree(path);
   UnloadImage(img);
 }
 
@@ -51,6 +57,10 @@ void gen_ctx_init(GenerationCtx *ctx) {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
+
+  // ctx->rand_seed = GetRandomValue(-UINT_MAX, UINT_MAX);
+  ctx->rand_seed = 666;
+  SetRandomSeed(ctx->rand_seed);
 
   // Camera
   ctx->camera = (Camera){

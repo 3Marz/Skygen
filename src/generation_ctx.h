@@ -5,6 +5,7 @@
 #include "terrain.h"
 
 typedef struct {
+  unsigned int rand_seed;
 
   int screen_width;
   int screen_height;
