@@ -1,10 +1,12 @@
 #include "utils.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <raylib.h>
 #include <raymath.h>
 #include <stdlib.h>
+#include <string.h>
 
 float rnd() {
   return (float)GetRandomValue(0, 1000000) / 1000000.0f;
@@ -130,6 +132,201 @@ KI mh_pop(MinHeap *h)
         h->data[c] = t; c = m;
     }
     return top;
+}
+
+// KD Tree
+
+static float get_axis(Vector2 p, int axis) {
+  return axis == 0 ? p.x : p.y;
+}
+static int compare_points(KDPoint a, KDPoint b, int axis) {
+  float av = get_axis(a.pos, axis);
+  float bv = get_axis(b.pos, axis);
+
+  if (av < bv) return -1;
+  if (av > bv) return  1;
+
+  // Tie break
+  av = get_axis(a.pos, 1 - axis);
+  bv = get_axis(b.pos, 1 - axis);
+
+  if (av < bv) return -1;
+  if (av > bv) return  1;
+
+  return 0;
+}
+static void swap_points(KDPoint *a, KDPoint *b) {
+  KDPoint temp = *a;
+  *a = *b;
+  *b = temp;
+}
+static void quickselect(
+    KDPoint *points,
+    size_t left,
+    size_t right,
+    size_t k,
+    int axis)
+{
+    while (left < right) {
+        KDPoint pivot = points[left + (right - left) / 2];
+
+        size_t lt = left;
+        size_t i = left;
+        size_t gt = right;
+
+        while (i <= gt) {
+            int cmp = compare_points(points[i], pivot, axis);
+
+            if (cmp < 0) {
+                swap_points(&points[lt++], &points[i++]);
+            }
+            else if (cmp > 0) {
+                swap_points(&points[i], &points[gt--]);
+            }
+            else {
+                i++;
+            }
+        }
+
+        if (k < lt) {
+            right = lt - 1;
+        }
+        else if (k > gt) {
+            left = gt + 1;
+        }
+        else {
+            return;
+        }
+    }
+}
+
+KDNode* build_recursive(
+    KDPoint *points,
+    size_t start,
+    size_t end,
+    int depth,
+    bool *success
+) {
+  if (start >= end || !success) return NULL;
+
+  int axis = depth % 2;
+
+  size_t mid = start + (end - start) / 2;
+
+  quickselect(points, start, end - 1, mid, axis);
+
+  KDNode *node = malloc(sizeof(KDNode));
+
+  if (!node) { *success = false; return NULL; }
+
+  node->point = points[mid];
+  node->axis = axis;
+
+  node->left = build_recursive(points, start, mid, depth + 1, success);
+  node->right = build_recursive(points, mid+1, end, depth + 1, success);
+
+  if (!*success) {
+    free(node->left);
+    free(node->right);
+    free(node);
+    return NULL;
+  }
+
+  return node;
+}
+
+
+bool kd_tree_build(KDTree *tree, KDPoint *points, size_t count) {
+  if (!tree || (count > 0 && !points))
+    return false;
+
+  tree->root = NULL;
+  tree->size = 0;
+
+  if (count == 0)
+    return true;
+
+  KDPoint *copy = malloc(count * sizeof(KDPoint));
+
+  if (!copy)
+    return false;
+
+  memcpy(copy, points, count * sizeof(KDPoint));
+
+  bool success = true;
+
+  tree->root = build_recursive(copy, 0, count, 0, &success);
+
+  free(copy);
+
+  if (!success) {
+    kd_tree_free(tree);
+    return false;
+  }
+
+  tree->size = count;
+  return true;
+}
+
+void nearest_recursive(
+    KDNode *node,
+    Vector2 target,
+    KDNeighbor *best
+) {
+  if (!node) return;
+
+  float d2 = Vector2DistanceSqr(node->point.pos, target);
+
+  if (d2 < best->dist) {
+    best->point = node->point;
+    best->dist = d2;
+  }
+
+  int axis = node->axis;
+
+  float diff =
+    get_axis(target, axis) - get_axis(node->point.pos, axis);
+
+  KDNode *near = diff < 0 ? node->left : node->right;
+  KDNode *far = diff < 0 ? node->right : node->left;
+
+  nearest_recursive(near, target, best);
+
+  if (diff * diff < best->dist)
+    nearest_recursive(far, target, best);
+
+}
+bool kd_tree_nearest(KDTree *tree, Vector2 target, KDNeighbor *result) {
+  if (!tree || !tree->root || !result)
+    return false;
+
+  result->dist = FLT_MAX;
+
+  nearest_recursive(tree->root, target, result);
+
+  return true;
+}
+
+static void free_recursive(KDNode *node)
+{
+    if (!node)
+        return;
+
+    free_recursive(node->left);
+    free_recursive(node->right);
+
+    free(node);
+}
+
+void kd_tree_free(KDTree *tree)
+{
+    if (!tree)
+        return;
+
+    free_recursive(tree->root);
+
+    tree->root = NULL;
+    tree->size = 0;
 }
 
 // COLORS

@@ -42,6 +42,30 @@ typedef struct { KI *data; int len, cap; } MinHeap;
 void mh_push(MinHeap *h, float k, int i);
 KI   mh_pop(MinHeap *h);
 
+// KD Tree
+typedef struct { Vector2 pos; int idx; } KDPoint;
+
+typedef struct KDNode {
+  KDPoint point;
+  int axis; //X = 0, Y = 1
+  struct KDNode *left;
+  struct KDNode *right;
+} KDNode;
+
+typedef struct {
+  KDNode *root;
+  size_t size;
+} KDTree;
+
+typedef struct {
+  KDPoint point;
+  float dist;
+} KDNeighbor;
+
+bool kd_tree_build(KDTree *tree, KDPoint *points, size_t count);
+bool kd_tree_nearest(KDTree *tree, Vector2 target, KDNeighbor *result);
+void kd_tree_free(KDTree *tree);
+
 // COLORS
 
 typedef struct {

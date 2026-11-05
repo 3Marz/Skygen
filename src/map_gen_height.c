@@ -526,7 +526,7 @@ void map_continet(MapGraph *map) {
   add_strip(map, ra(50, 80), ra(2, 6), 0);
   multiply_elevation(map, 0.9, ra(80, 100));
   mask_elevation(map, 1.5f);
-  // smooth_coast_elevation(map, 2);
+  smooth_coast_elevation(map, 2);
   // smooth_elevation(map, 1);
   // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
 }
@@ -541,8 +541,14 @@ void map_atoll(MapGraph *map) {
 
 void map_heights_assign(MapGraph *map) {
 
-  //Normal Continent
-  map_continet(map);
+  float r = rnd();
+  if (r > 0.5f) {
+    //Normal Continent
+    map_continet(map);
+  } else {
+    // Atoll
+    map_atoll(map);
+  }
 
   //Invert Miss
   // add_elevation(map, 40, 0);
@@ -554,25 +560,12 @@ void map_heights_assign(MapGraph *map) {
   // multiply_elevation(map, 0.8, ra(20, 100));
   // multiply_elevation(map, 0.7, ra(90, 100));
   // invert_elevation(map, 80);
-  
-
-  // Atoll
-  // map_atoll(map);
-
 }
 
 float map_heights_evaluate(MapGraph *map, Vector2 pos) {
-  float power = 2.0f;
+  float power = 2.0f; //TODO make global
 
-  // denormalize pos 
-  Vector2 to_map = {
-    pos.x, //* map->texture_size.x,
-    pos.y //* map->texture_size.y
-  };
-
-  int center = map_graph_get_closest_center(map, to_map);
-
-  // return map->c[center].elevation;
+  int center = map_graph_get_closest_center(map, pos);
 
   float total_weight = 0.0f;
   float weighted_sum = 0.0f;
@@ -582,7 +575,7 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
     MapCorner q = map->q[qi];
 
     Vector2 cp = q.pos;
-    float dist = Vector2Distance(to_map, cp);
+    float dist = Vector2Distance(pos, cp);
 
     if (dist < 0.00001f) return q.elevation;
 
@@ -594,8 +587,6 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
 
   return weighted_sum / total_weight;
 }
-
-
 
 
 

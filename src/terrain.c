@@ -10,7 +10,7 @@
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
-  grid->height_power = 12.0f;
+  grid->height_power = 50.0f;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -24,10 +24,6 @@ void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 void tgrid_generate(TGrid *grid, MapGraph *map, int no_map_lookup) {
   if (!grid->vert) return;
 
-  // int chunck_x = 1;
-  // int chunck_y = 0;
-  // int sp = 64;
-
   for (int x = 0; x < grid->size.x; x++) {
     for (int y = 0; y < grid->size.y; y++) {
 
@@ -37,10 +33,9 @@ void tgrid_generate(TGrid *grid, MapGraph *map, int no_map_lookup) {
       float h;
       if (!no_map_lookup) {
         Vector2 normalized_pos = {
-          Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing),
-          Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing)
+          Normalize(px, 0, grid->size.x * grid->spacing - grid->spacing) * map->texture_size.x,
+          Normalize(pz, 0, grid->size.y * grid->spacing - grid->spacing) * map->texture_size.y
         };
-        // printf("X: %i, Y: %i\n", x, y);
         h = map_heights_evaluate(map, normalized_pos);
       } else {
         h = grid->vert[x][y].y;
@@ -84,7 +79,7 @@ void terrain_generate(Terrain *terr, MapGraph *map, int no_map_lookup) {
 
   terrain_free(terr);
 
-  tgrid_init(&terr->grid, (Vector2){map->texture_size.x/4, map->texture_size.y/4}, map->spacing*2);
+  tgrid_init(&terr->grid, (Vector2){map->texture_size.x, map->texture_size.y}, map->spacing*2);
   tgrid_generate(&terr->grid, map, no_map_lookup);
   
   Mesh tm = { 0 };
@@ -132,7 +127,7 @@ void terrain_draw(Terrain *terr) {
   float sizex = (terr->grid.size.x*terr->grid.spacing)-terr->grid.spacing,
         sizey = (terr->grid.size.y*terr->grid.spacing)-terr->grid.spacing;
 
-  DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 2.0f, WHITE);
+  DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 1.0f, WHITE);
 
 }
 

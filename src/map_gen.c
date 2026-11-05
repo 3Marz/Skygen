@@ -610,8 +610,10 @@ MapGraph *map_graph_init(MapParams p) {
   map->model = (Model){ 0 };
   map->dirty = 1;
 
+  map->tree = (KDTree){ 0 };
+
   //TODO blob power determint by number of cells
-  map->blob_power = 0.96f;
+  map->blob_power = 0.98f;
 
   return map;
 }
@@ -651,6 +653,7 @@ void map_graph_free(MapGraph *map) {
   free_graph(map);
   edge_index_free(map);
   free_hull_edges(map);
+  kd_tree_free(&map->tree);
   free(map->tris);
   free(map->c);
   free(map);
@@ -1432,20 +1435,12 @@ static int clip_halfplane(Vector2 *in, int nin, Vector2 *out, Vector2 mid, Vecto
 }
 
 int map_graph_get_closest_center(MapGraph *map, Vector2 p) {
-  /* dist2() returns a SQUARED distance, so the sentinel must be larger than
-   * any possible one (max is width^2+height^2). The old value of
-   * texture_size.x (~800) bailed out on points farther than ~28px from every
-   * center and returned -1, which generate_heightmap then used to index c[-1]. */
-  double minDist = 1e300;
-  int minIndex = -1;
-  for (int i = 0; i < map->nc; i++) {
-    double dist = dist2(map->c[i].pos, p);
-    if (dist < minDist) {
-      minDist = dist;
-      minIndex = i;
-    }
+  KDNeighbor cl = { 0 };
+  if(!kd_tree_nearest(&map->tree, p, &cl)) {
+    printf("Error: No close cell found\n");
+    return INVALID_INDEX;
   }
-  return minIndex;
+  return cl.point.idx;
 }
 
 static int edge_between(const MapGraph *map, int qa, int qb)
@@ -1590,6 +1585,22 @@ static void relax_one(MapGraph *map)
 
 void relax_voronoi_map(MapGraph *map, int iterations) {
   for (int i = 0; i < iterations; i++) relax_one(map);
+}
+
+bool build_kd_tree(MapGraph *map) {
+  // Build KDPoints
+  KDPoint points[map->nc];
+  for (int i = 0; i < map->nc; i++) {
+    points[i].idx = i;
+    points[i].pos = map->c[i].pos;
+  }
+
+  if (!kd_tree_build(&map->tree, points, map->nc)) {
+    printf("Error: Can't create KD-Tree\n");
+    return false;
+  }
+
+  return true;
 }
 
 void reset_heightfield(MapGraph *map) {
@@ -1757,6 +1768,7 @@ void map_graph_generate(MapGraph *map, MapParams p) {
 
   triangulate_map(map);
   if (p.relax > 0) relax_voronoi_map(map, p.relax);
+  if (!build_kd_tree(map)) return;
 
   map_graph_generate_heightfield(map); 
 
@@ -1892,7 +1904,7 @@ Model map_graph_generate_model(MapGraph *map) {
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
 void map_graph_draw(MapGraph *map, int with_lines) {
-  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 1.0f, WHITE);
+  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 0.5f, WHITE);
 
   if (!with_lines) return;
 

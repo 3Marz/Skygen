@@ -1,6 +1,7 @@
 #ifndef SKYGEN_MAP_GEN_H
 #define SKYGEN_MAP_GEN_H
 
+#include "utils.h"
 #include <raylib.h>
 
 /* Capacity of the per-vertex adjacency arrays. Must exceed the largest
@@ -92,6 +93,9 @@ typedef struct {
   Texture2D tex;
   Model model;
   int dirty;
+
+  // For fast cells lookup
+  KDTree tree;
 
   // For heightmap
   float blob_power;

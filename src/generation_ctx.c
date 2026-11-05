@@ -26,6 +26,7 @@ void regenerate_map(GenerationCtx *ctx) {
 }
 
 void export_height_map(GenerationCtx *ctx) {
+
   Image img = GenImageColor(ctx->map->texture_size.x, ctx->map->texture_size.y, BLACK);
   for (int i = 0; i < ctx->map->texture_size.x; i++) {
     for (int j = 0; j < ctx->map->texture_size.y; j++) {
@@ -51,8 +52,6 @@ void gen_ctx_init(GenerationCtx *ctx) {
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 
-  SetRandomSeed(2);
-
   // Camera
   ctx->camera = (Camera){
     .fovy = 45.0f,
@@ -62,13 +61,11 @@ void gen_ctx_init(GenerationCtx *ctx) {
     .projection = CAMERA_PERSPECTIVE,
   };
 
-  // The terrain spans thousands of world units, so the stock raylib speed of
-  // ~5 units/s is unusably slow. This one is changeable at runtime.
-  ctx->camera_speed = 300.0f;
+  ctx->camera_speed = 500.0f;
 
   ctx->map_params = (MapParams){
-    .map_size = (Vector2){1200, 800},
-    .n_sites = 5000,
+    .map_size = (Vector2){2048, 2048},
+    .n_sites = 30000,
     .relax = 1,
   };
 
@@ -91,13 +88,6 @@ void gen_ctx_init(GenerationCtx *ctx) {
 
 }
 
-/* Custom free camera built on UpdateCameraPro.
- *
- * Movement matches the stock CAMERA_FREE layout: W/S forward and back, A/D
- * strafe, mouse to look. Q/E rise and sink (Space is already bound to
- * regenerating the map, and the arrow keys change the site count).
- * [ and ] change the speed while it runs.
- */
 static void update_free_camera(GenerationCtx *ctx) {
   if (IsKeyPressed(KEY_LEFT_BRACKET)) ctx->camera_speed *= 0.8f;
   if (IsKeyPressed(KEY_RIGHT_BRACKET)) ctx->camera_speed *= 1.25f;
@@ -160,7 +150,7 @@ void gen_ctx_draw(GenerationCtx *ctx) {
       BeginMode3D(ctx->camera);
         terrain_draw(&ctx->terrain);
       EndMode3D();
-      DrawText(TextFormat("camera speed: %.0f  ([ / ])", ctx->camera_speed), 10, 10, 20, RAYWHITE);
+      DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 10, 20, RAYWHITE);
       break;
     case MODE_2D:
       map_graph_draw(ctx->map, 0);
