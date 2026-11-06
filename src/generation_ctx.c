@@ -14,13 +14,13 @@ void regenerate_map(GenerationCtx *ctx) {
   } else if (ctx->regenerate == 2) {
     map_graph_generate_heightfield(ctx->map);
   } else if (ctx->regenerate == 3) {
-    terrain_generate(&ctx->terrain, ctx->map, 0);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
   } else if (ctx->regenerate == 4) {
-    terrain_generate(&ctx->terrain, ctx->map, 1);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
   }
 
   if (ctx->draw_mode == MODE_3D && (ctx->regenerate != 3 || ctx->regenerate != 4)) {
-    terrain_generate(&ctx->terrain, ctx->map, 0);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
   }
 
 
@@ -29,9 +29,9 @@ void regenerate_map(GenerationCtx *ctx) {
 
 void export_height_map(GenerationCtx *ctx) {
 
-  Image img = GenImageColor(ctx->map->texture_size.x, ctx->map->texture_size.y, BLACK);
-  for (int i = 0; i < ctx->map->texture_size.x; i++) {
-    for (int j = 0; j < ctx->map->texture_size.y; j++) {
+  Image img = GenImageColor(ctx->map->texture_size.x+1, ctx->map->texture_size.y+1, BLACK);
+  for (int i = 0; i < ctx->map->texture_size.x+1; i++) {
+    for (int j = 0; j < ctx->map->texture_size.y+1; j++) {
 
       float h = map_heights_evaluate(ctx->map, (Vector2){i, j});
       h = (h/100.0f)*225;
@@ -40,7 +40,7 @@ void export_height_map(GenerationCtx *ctx) {
       ImageDrawPixel(&img, i, j, hc);
     }
   }
-  ImageBlurGaussian(&img, 1);
+  // ImageBlurGaussian(&img, 1);
 
   sds path = sdsnew("public/");
   path = sdscatprintf(path, "height_seed_%i.png", ctx->rand_seed);
@@ -74,7 +74,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->camera_speed = 500.0f;
 
   ctx->map_params = (MapParams){
-    .map_size = (Vector2){2048, 2048},
+    .map_size = (Vector2){MAP_SIZE_X, MAP_SIZE_Y},
     .n_sites = 30000,
     .relax = 1,
   };
@@ -91,7 +91,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   terrain_init(&ctx->terrain);
 
   if (ctx->draw_mode == MODE_3D) 
-    terrain_generate(&ctx->terrain, ctx->map, 0);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
 
 
   // DisableCursor();
@@ -136,8 +136,8 @@ void gen_ctx_update(GenerationCtx *ctx) {
   if (IsKeyPressed(KEY_SPACE)) { ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_UP)) { ctx->map_params.n_sites += 500; ctx->regenerate = 1; }
   if (IsKeyPressed(KEY_DOWN)) { ctx->map_params.n_sites -= 500; ctx->regenerate = 1; }
-  if (IsKeyPressed(KEY_LEFT)) { ctx->terrain.grid.height_power += 5; ctx->regenerate = 4; }
-  if (IsKeyPressed(KEY_RIGHT)) { ctx->terrain.grid.height_power -= 5; ctx->regenerate = 4; }
+  // if (IsKeyPressed(KEY_LEFT)) { ctx->terrain.grid.height_power += 5; ctx->regenerate = 4; }
+  // if (IsKeyPressed(KEY_RIGHT)) { ctx->terrain.grid.height_power -= 5; ctx->regenerate = 4; }
 
   if (IsKeyPressed(KEY_P)) { export_height_map(ctx); }
 
@@ -147,6 +147,7 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
   if (ctx->draw_mode == MODE_3D) {
     update_free_camera(ctx);
+    terrain_update(&ctx->terrain, ctx->camera.position);
   } 
 
 }

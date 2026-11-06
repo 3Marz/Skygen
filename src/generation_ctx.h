@@ -4,6 +4,10 @@
 #include "map_gen.h"
 #include "terrain.h"
 
+#define CHUNCK_SPACE 64
+#define MAP_SIZE_X 2048 // Must be divided by CHUNCK_SIZE
+#define MAP_SIZE_Y 2048 // Must be divided by CHUNCK_SIZE
+
 typedef struct {
   unsigned int rand_seed;
 
