@@ -569,7 +569,7 @@ void map_heights_assign(MapGraph *map) {
 }
 
 float map_heights_evaluate(MapGraph *map, Vector2 pos) {
-  float power = 2.0f; //TODO make global
+  float power = 3.2f; //TODO make global
 
   int center = map_graph_get_closest_center(map, pos);
 

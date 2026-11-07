@@ -40,6 +40,14 @@ void printv(void* data, DataType type) {
     }
 }
 
+// Vectors
+Vector2 v2(float x, float y) {
+  return (Vector2){x,y};
+}
+Vector3 v3(float x, float y, float z) {
+  return (Vector3){x,y,z};
+}
+
 // Arrays
 
 IntArray int_array_new(size_t initial_capacity) {

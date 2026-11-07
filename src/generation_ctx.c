@@ -1,8 +1,8 @@
 
 #include "generation_ctx.h"
+#include "lights.h"
 #include "map_gen.h"
 #include "map_gen_height.h"
-#include "../include/sds.h"
 #include "terrain.h"
 #include <raylib.h>
 #include <raymath.h>
@@ -14,13 +14,13 @@ void regenerate_map(GenerationCtx *ctx) {
   } else if (ctx->regenerate == 2) {
     map_graph_generate_heightfield(ctx->map);
   } else if (ctx->regenerate == 3) {
-    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   } else if (ctx->regenerate == 4) {
-    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   }
 
   if (ctx->draw_mode == MODE_3D && (ctx->regenerate != 3 || ctx->regenerate != 4)) {
-    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   }
 
 
@@ -40,12 +40,8 @@ void export_height_map(GenerationCtx *ctx) {
       ImageDrawPixel(&img, i, j, hc);
     }
   }
-  // ImageBlurGaussian(&img, 1);
-
-  sds path = sdsnew("public/");
-  path = sdscatprintf(path, "height_seed_%i.png", ctx->rand_seed);
-  ExportImage(img, path);
-  sdsfree(path);
+  ImageBlurGaussian(&img, 1);
+  ExportImage(img, TextFormat("height_seed_%i.png", ctx->rand_seed));
   UnloadImage(img);
 }
 
@@ -65,16 +61,16 @@ void gen_ctx_init(GenerationCtx *ctx) {
   // Camera
   ctx->camera = (Camera){
     .fovy = 45.0f,
-    .position = (Vector3){1000.0f, 400.0f, 1000.0f},
-    .target = (Vector3){0.0f, 0.0f, 0.0f},
-    .up = (Vector3){0.0f, 1.0f, 0.0f},
+    .position = v3(1000.0f, 400.0f, 1000.0f),
+    .target = v3(0.0f, 0.0f, 0.0f),
+    .up = v3(0.0f, 1.0f, 0.0f),
     .projection = CAMERA_PERSPECTIVE,
   };
 
-  ctx->camera_speed = 500.0f;
+  ctx->camera_speed = 200.0f;
 
   ctx->map_params = (MapParams){
-    .map_size = (Vector2){MAP_SIZE_X, MAP_SIZE_Y},
+    .map_size = v2(MAP_SIZE_X, MAP_SIZE_Y),
     .n_sites = 30000,
     .relax = 1,
   };
@@ -82,16 +78,21 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->regenerate = 0;
   ctx->draw_mode = MODE_2D;
 
+  // Lights
+
+  ctx->lctx = (LightCtx){ 0 };
+  light_ctx_init(&ctx->lctx);
+
   // Voronoi Map
   MapGraph *v_map = map_graph_init(ctx->map_params);
   map_graph_generate(v_map, ctx->map_params);
   ctx->map = v_map;
 
   ctx->terrain = (Terrain){ 0 };
-  terrain_init(&ctx->terrain);
+  terrain_init(&ctx->terrain, &ctx->lctx.shader);
 
   if (ctx->draw_mode == MODE_3D) 
-    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed);
+    terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
 
 
   // DisableCursor();
@@ -147,7 +148,8 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
   if (ctx->draw_mode == MODE_3D) {
     update_free_camera(ctx);
-    terrain_update(&ctx->terrain, ctx->camera.position);
+    light_ctx_update(&ctx->lctx, ctx->camera.position);
+    terrain_update(&ctx->terrain, ctx->map, ctx->camera.position);
   } 
 
 }
@@ -159,7 +161,9 @@ void gen_ctx_draw(GenerationCtx *ctx) {
   switch (ctx->draw_mode) {
     case MODE_3D:
       BeginMode3D(ctx->camera);
-        terrain_draw(&ctx->terrain);
+        BeginShaderMode(ctx->lctx.shader);
+          terrain_draw(&ctx->terrain);
+        EndShaderMode();
       EndMode3D();
       DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 10, 20, RAYWHITE);
       break;
@@ -175,6 +179,7 @@ void gen_ctx_free(GenerationCtx *ctx) {
   ctx->map_params = (MapParams){ 0 };
   map_graph_free(ctx->map);
   terrain_free(&ctx->terrain);
+  light_ctx_free(&ctx->lctx);
 
 }
 

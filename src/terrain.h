@@ -4,6 +4,8 @@
 #include "map_gen.h"
 #include <raylib.h>
 
+#define VIEW_DIST 30.0f*10000.0f
+
 typedef struct {
 
   float height_power;
@@ -25,6 +27,7 @@ typedef struct {
 
 typedef struct {
 
+  Shader *light_shader;
   Image height_map;
 
   TChunk **chunk;
@@ -32,17 +35,9 @@ typedef struct {
 
 } Terrain;
 
-void tgrid_init(TGrid *grid, Vector2 size, float spacing);
-void tgrid_generate(TGrid *grid, Vector2 offset, Image height_map);
-void tgrid_free(TGrid *grid);
-
-void tchunk_init(TChunk *chunk, Vector3 position);
-void tchunk_generate(TChunk *chunk, Image height_map);
-void tchunk_free(TChunk *chunk);
-
-void terrain_init(Terrain *terr);
-void terrain_generate(Terrain *terr, MapGraph *map, int seed);
-void terrain_update(Terrain *terr, Vector3 cam_pos);
+void terrain_init(Terrain *terr, Shader *light_shader);
+void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos);
+void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos);
 void terrain_draw(Terrain *terr);
 void terrain_free(Terrain *terr);
 

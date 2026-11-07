@@ -1,5 +1,5 @@
 
-src_files = src/main.c src/map_gen.c src/map_gen_height.c src/utils.c src/terrain.c src/generation_ctx.c include/sds.c
+src_files = src/main.c src/map_gen.c src/map_gen_height.c src/utils.c src/terrain.c src/generation_ctx.c src/lights.c include/sds.c
 build_file = build.out
 
 ifdef OS

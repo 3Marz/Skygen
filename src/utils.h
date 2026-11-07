@@ -16,6 +16,10 @@ typedef enum { T_INT, T_FLOAT, T_CHAR } DataType;
 
 void printv(void* data, DataType type);
 
+// Vectors
+Vector2 v2(float x, float y);
+Vector3 v3(float x, float y, float z);
+
 // Arrays
 
 #define INVALID_INDEX 0xffffffff
