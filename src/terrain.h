@@ -25,10 +25,20 @@ typedef struct {
 
 } TChunk;
 
+/* Smooth float terrain heights, sampled from the map at `step` pixels and
+ * blurred so the piecewise-planar Delaunay interpolation does not show up as
+ * flat triangles in the terrain shading. */
+typedef struct {
+  float *data;
+  int width, height;
+  int step;
+} THeightField;
+
 typedef struct {
 
   Shader *light_shader;
-  Image height_map;
+
+  THeightField height_field;
 
   TChunk **chunk;
   Vector2 nchunk;
@@ -36,6 +46,7 @@ typedef struct {
 } Terrain;
 
 void terrain_init(Terrain *terr, Shader *light_shader);
+void terrain_clear(Terrain *terr);
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos);
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos);
 void terrain_draw(Terrain *terr);

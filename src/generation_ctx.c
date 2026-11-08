@@ -19,7 +19,13 @@ void regenerate_map(GenerationCtx *ctx) {
     terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   }
 
-  if (ctx->draw_mode == MODE_3D && (ctx->regenerate != 3 || ctx->regenerate != 4)) {
+  /* The map heights changed: drop the cached terrain so it is rebuilt from the
+   * new map, even if we are in 2D right now. */
+  if (ctx->regenerate == 1 || ctx->regenerate == 2) {
+    terrain_clear(&ctx->terrain);
+  }
+
+  if (ctx->draw_mode == MODE_3D && ctx->regenerate != 3 && ctx->regenerate != 4) {
     terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   }
 
@@ -55,13 +61,13 @@ void gen_ctx_init(GenerationCtx *ctx) {
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 
-  ctx->rand_seed = GetRandomValue(-UINT_MAX, UINT_MAX);
+  ctx->rand_seed = GetRandomValue(INT_MIN, INT_MAX);
   // ctx->rand_seed = 666;
   SetRandomSeed(ctx->rand_seed);
 
   // Camera
   ctx->camera = (Camera){
-    .fovy = 45.0f,
+    .fovy = 60.0f,
     .position = v3(1000.0f, 400.0f, 1000.0f),
     .target = v3(0.0f, 0.0f, 0.0f),
     .up = v3(0.0f, 1.0f, 0.0f),
