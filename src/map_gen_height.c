@@ -529,7 +529,6 @@ void map_continet(MapGraph *map) {
   mask_elevation(map, 1.5f);
   smooth_coast_elevation(map, 2);
   // smooth_elevation(map, 1);
-  // slop_elevation(map, 1.0f, GetRandomValue(0, 360));
 }
 void map_atoll(MapGraph *map) {
   add_hills(map, ra(1, 1), ra(80,100), ra(50,60), ra(45,55));
@@ -553,6 +552,7 @@ void map_invert_shit(MapGraph *map) {
   invert_elevation(map, 50);
 
   add_hills(map, ra(8, 12), ra(30, 80), ra(10, 90), ra(10, 90));
+  // slop_elevation(map, 1.5f, GetRandomValue(0, 360));
   smooth_coast_elevation(map, 2);
 }
 

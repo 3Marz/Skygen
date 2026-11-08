@@ -4,7 +4,7 @@
 #include "map_gen.h"
 #include <raylib.h>
 
-#define VIEW_DIST 30.0f*10000.0f
+#define VIEW_DIST 50.0f*10000.0f
 
 typedef struct {
 

@@ -15,7 +15,7 @@
  * would otherwise make every Delaunay triangle a flat-shaded plane. */
 #define HEIGHT_FIELD_STEP 2
 #define HEIGHT_FIELD_BLUR_SCALE 0.30f /* blur sigma as a fraction of site spacing */
-#define HEIGHT_FIELD_BLUR_PASSES 0
+#define HEIGHT_FIELD_BLUR_PASSES 2
 
 static void height_field_free(THeightField *field) {
   if (!field) return;
@@ -135,7 +135,7 @@ static float height_field_sample(const THeightField *field, float x, float y) {
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
-  grid->height_power = spacing*200;
+  grid->height_power = 200.0f;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -155,36 +155,7 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
       int px = x * grid->spacing; 
       int pz = y * grid->spacing; 
 
-      // printf("x: %f, y: %f\n", x+offset.x, y+offset.y);
-      // Color ht = GetImageColor(height_map, x+offset.x, y+offset.y+1);
-      // Color hb = GetImageColor(height_map, x+offset.x, y+offset.y-1);
-      // Color hl = GetImageColor(height_map, x+offset.x-1, y+offset.y);
-      // Color hr = GetImageColor(height_map, x+offset.x+1, y+offset.y);
-      // Color hc = GetImageColor(height_map, x+offset.x, y+offset.y);
-      // // //
-      // float h = Normalize((float)(hc.r+hc.g+hc.b)/3, 0, 255);
-      // float hTop = Normalize((float)(ht.r+ht.g+ht.b)/3, 0, 255);
-      // float hBot = Normalize((float)(hb.r+hb.g+hb.b)/3, 0, 255);
-      // float hLef = Normalize((float)(hl.r+hl.g+hl.b)/3, 0, 255);
-      // float hRig = Normalize((float)(hr.r+hr.g+hr.b)/3, 0, 255);
-      float h = height_field_sample(height_field, x+offset.x, y+offset.y);
-      // h *= 255;
-      // h = Normalize(h, 0, 255);
-
-      
-      // float heights[5] = {h,hTop,hBot,hLef,hRig};
-      // float weights[5] = {0.90, 0.025, 0.025, 0.025, 0.025};
-      // float h_sum = 0.0f;
-      // float w_sum = 0.0f;
-      //
-      // for (int i = 0; i < 5; i++) {
-      //   h_sum += heights[i] * weights[i];
-      //   w_sum += weights[i];
-      // }
-      //
-      //
-      // float height = h_sum / w_sum;
-      // float height = (h+hTop+hBot+hLef+hRig)/5.0f;
+      float h = height_field_sample(height_field, (x+offset.x)*grid->spacing, (y+offset.y)*grid->spacing);
 
       grid->vert[x][y] = (Vector3){px, h*grid->height_power, pz};
     }
@@ -245,14 +216,15 @@ void tchunk_free(TChunk *chunk) {
   tgrid_free(&chunk->grid);
 }
 
-void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *light_shader) {
+void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *light_shader, int lod_level) {
   tchunk_free(chunk);
   if (!height_field || !height_field->data) return;
 
-  float s = 256.0f;
+  int lods[3] = {128, 64, 32};
+  float s = lods[lod_level];
   tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNCK_SPACE/(s));
   tgrid_generate(&chunk->grid, 
-      (Vector2){chunk->position.x, chunk->position.z},
+      v2(chunk->position.x/(CHUNCK_SPACE/(s)), chunk->position.z/(CHUNCK_SPACE/(s))),
       height_field);
 
   Mesh tm = {0};
@@ -372,9 +344,11 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
       Vector2 cm_pos2 = {inital_cam_pos.x, inital_cam_pos.z};
       float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
 
-      if (dist > VIEW_DIST) continue;
+      if (dist > VIEW_DIST)
+        tchunk_generate(c, &terr->height_field, terr->light_shader, 2);
+      else
+        tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
 
-      tchunk_generate(c, &terr->height_field, terr->light_shader);
       c->is_active = true;
     }
   }
@@ -387,27 +361,19 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
       TChunk *c = &terr->chunk[x][y];
-      Vector2 ch_pos2 = {c->position.x, c->position.z};
+      Vector2 ch_pos2 = {
+        c->position.x,//+((c->grid.size.x*c->grid.spacing)/2),
+        c->position.z //+((c->grid.size.y*c->grid.spacing)/2)
+      };
       Vector2 cm_pos2 = {cam_pos.x, cam_pos.z};
-      float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
 
-      // if (dist > 100000.0f) {
-      //   if (c->is_active) {
-      //     c->is_active = false;
-      //     tchunk_free(c);
-      //   }
-      // } else {
-      //   if (!c->is_active) {
-      //     c->is_active = true;
-      //     tchunk_generate(c, terr->height_map);
-      //   }
-      // }
+      float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
       
       if (dist > VIEW_DIST) {
-        c->is_active = false;
+        // c->is_active = false;
       } else {
         if (!IsModelValid(c->model) && terr->height_field.data)
-          tchunk_generate(c, &terr->height_field, terr->light_shader);
+          tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
         c->is_active = true;
       }
 
