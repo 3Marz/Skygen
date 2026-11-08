@@ -569,7 +569,7 @@ void map_heights_assign(MapGraph *map) {
 }
 
 float map_heights_evaluate(MapGraph *map, Vector2 pos) {
-  float power = 3.2f; //TODO make global
+  float power = 3.f; //TODO make global
 
   int center = map_graph_get_closest_center(map, pos);
 
@@ -577,21 +577,29 @@ float map_heights_evaluate(MapGraph *map, Vector2 pos) {
   float weighted_sum = 0.0f;
 
   for (int c = 0; c < map->c[center].ncorners; c++) {
-    int qi = map->c[center].corners[c];
-    MapCorner q = map->q[qi];
+    Vector2 cp;
+    float elev;
+    if (c == map->c[center].ncorners) {
+      cp = map->c[center].pos;
+      elev = map->c[center].elevation; 
+    } else {
+      int qi = map->c[center].corners[c];
+      MapCorner q = map->q[qi];
+      cp = q.pos;
+      elev = q.elevation;
+    }
 
-    Vector2 cp = q.pos;
     float dist = Vector2Distance(pos, cp);
 
-    if (dist < 0.00001f) return q.elevation;
+    if (dist < 0.00001f) return elev;
 
     float weight = 1.0f / powf(dist, power);
 
-    weighted_sum += (weight * q.elevation);
+    weighted_sum += (weight * elev);
     total_weight += weight;
   }
 
-  return weighted_sum / total_weight;
+  return (weighted_sum / total_weight)/100.0f;
 }
 
 

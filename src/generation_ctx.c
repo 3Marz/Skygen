@@ -34,14 +34,15 @@ void export_height_map(GenerationCtx *ctx) {
     for (int j = 0; j < ctx->map->texture_size.y+1; j++) {
 
       float h = map_heights_evaluate(ctx->map, (Vector2){i, j});
-      h = (h/100.0f)*225;
+      h *= 225;
       Color hc = {h, h, h, 225};
 
       ImageDrawPixel(&img, i, j, hc);
     }
   }
-  ImageBlurGaussian(&img, 1);
-  ExportImage(img, TextFormat("height_seed_%i.png", ctx->rand_seed));
+  ImageBlurGaussian(&img, 2);
+  // ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R16);
+  ExportImage(img, TextFormat("public/height_seed_%i.png", ctx->rand_seed));
   UnloadImage(img);
 }
 
@@ -54,8 +55,8 @@ void gen_ctx_init(GenerationCtx *ctx) {
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 
-  // ctx->rand_seed = GetRandomValue(-UINT_MAX, UINT_MAX);
-  ctx->rand_seed = 666;
+  ctx->rand_seed = GetRandomValue(-UINT_MAX, UINT_MAX);
+  // ctx->rand_seed = 666;
   SetRandomSeed(ctx->rand_seed);
 
   // Camera

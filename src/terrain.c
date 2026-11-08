@@ -10,7 +10,7 @@
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
-  grid->height_power = spacing*2;
+  grid->height_power = spacing*200;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -21,7 +21,7 @@ void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
 }
 
-void tgrid_generate(TGrid *grid, Vector2 offset, MapGraph *map) {
+void tgrid_generate(TGrid *grid, Vector2 offset, MapGraph *map, Image height_map) {
   if (!grid->vert) return;
 
   for (int x = 0; x < grid->size.x; x++) {
@@ -31,11 +31,37 @@ void tgrid_generate(TGrid *grid, Vector2 offset, MapGraph *map) {
       int pz = y * grid->spacing; 
 
       // printf("x: %f, y: %f\n", x+offset.x, y+offset.y);
-      // Color hc = GetImageColor(height_map, x+offset.x, y+offset.y);
-      // float h = Normalize((float)(hc.r+hc.g+hc.b)/3, 0, 255);
-      float h = map_heights_evaluate(map, v2(x+offset.x, y+offset.y));
+      Color ht = GetImageColor(height_map, x+offset.x, y+offset.y+1);
+      Color hb = GetImageColor(height_map, x+offset.x, y+offset.y-1);
+      Color hl = GetImageColor(height_map, x+offset.x-1, y+offset.y);
+      Color hr = GetImageColor(height_map, x+offset.x+1, y+offset.y);
+      Color hc = GetImageColor(height_map, x+offset.x, y+offset.y);
+      // //
+      float h = Normalize((float)(hc.r+hc.g+hc.b)/3, 0, 255);
+      float hTop = Normalize((float)(ht.r+ht.g+ht.b)/3, 0, 255);
+      float hBot = Normalize((float)(hb.r+hb.g+hb.b)/3, 0, 255);
+      float hLef = Normalize((float)(hl.r+hl.g+hl.b)/3, 0, 255);
+      float hRig = Normalize((float)(hr.r+hr.g+hr.b)/3, 0, 255);
+      // float h = map_heights_evaluate(map, v2(x+offset.x, y+offset.y));
+      // h *= 255;
+      // h = Normalize(h, 0, 255);
 
-      grid->vert[x][y] = (Vector3){px, h*grid->height_power, pz};
+      
+      // float heights[5] = {h,hTop,hBot,hLef,hRig};
+      // float weights[5] = {0.90, 0.025, 0.025, 0.025, 0.025};
+      // float h_sum = 0.0f;
+      // float w_sum = 0.0f;
+      //
+      // for (int i = 0; i < 5; i++) {
+      //   h_sum += heights[i] * weights[i];
+      //   w_sum += weights[i];
+      // }
+      //
+      //
+      // float height = h_sum / w_sum;
+      float height = (h+hTop+hBot+hLef+hRig)/5.0f;
+
+      grid->vert[x][y] = (Vector3){px, height*grid->height_power, pz};
     }
   }
 
@@ -83,14 +109,15 @@ void tchunk_free(TChunk *chunk) {
   tgrid_free(&chunk->grid);
 }
 
-void tchunk_generate(TChunk *chunk, MapGraph *map, Shader *light_shader) {
+void tchunk_generate(TChunk *chunk, MapGraph *map, Image height_map, Shader *light_shader) {
   tchunk_free(chunk);
 
   float s = 256.0f;
   tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNCK_SPACE/(s));
   tgrid_generate(&chunk->grid, 
       (Vector2){chunk->position.x, chunk->position.z},
-      map);
+      map,
+      height_map);
 
   Mesh tm = {0};
   tm.triangleCount = 2 * ((chunk->grid.size.x - 1) * (chunk->grid.size.y - 1));
@@ -182,7 +209,7 @@ void terrain_init(Terrain *terr, Shader *light_shader) {
 
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos) {
 
-  terr->height_map = LoadImage(TextFormat("height_seed_%i.png", seed));
+  terr->height_map = LoadImage(TextFormat("public/height_seed_%i.png", seed));
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
@@ -194,7 +221,7 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
 
       if (dist > VIEW_DIST) continue;
 
-      tchunk_generate(c, map, terr->light_shader);
+      tchunk_generate(c, map, terr->height_map, terr->light_shader);
       c->is_active = true;
     }
   }
@@ -224,7 +251,7 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
         c->is_active = false;
       } else {
         if (!IsModelValid(c->model) && IsImageValid(terr->height_map))
-          tchunk_generate(c, map, terr->light_shader);
+          tchunk_generate(c, map, terr->height_map, terr->light_shader);
         c->is_active = true;
       }
 
