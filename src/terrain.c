@@ -135,7 +135,7 @@ static float height_field_sample(const THeightField *field, float x, float y) {
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
-  grid->height_power = 200.0f;
+  grid->height_power = 250.0f;
   grid->size = size;
   grid->spacing = spacing;
 
@@ -207,7 +207,8 @@ void tchunk_init(TChunk *chunk, Vector3 position) {
   chunk->model = (Model){ 0 };
   chunk->grid = (TGrid){ 0 };
   chunk->position = position;
-  chunk->is_active = false;
+  chunk->is_active = true;
+  chunk->lod_level = -1;
 }
 
 void tchunk_free(TChunk *chunk) {
@@ -217,10 +218,13 @@ void tchunk_free(TChunk *chunk) {
 }
 
 void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *light_shader, int lod_level) {
+  if (lod_level == chunk->lod_level) return;
+
   tchunk_free(chunk);
+  chunk->lod_level = lod_level;
   if (!height_field || !height_field->data) return;
 
-  int lods[3] = {128, 64, 32};
+  int lods[3] = {LOD0_GEO, LOD0_GE1, LOD0_GE2};
   float s = lods[lod_level];
   tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNCK_SPACE/(s));
   tgrid_generate(&chunk->grid, 
@@ -343,11 +347,16 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
       Vector2 ch_pos2 = {c->position.x, c->position.z};
       Vector2 cm_pos2 = {inital_cam_pos.x, inital_cam_pos.z};
       float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
+      int lod = -1;
 
-      if (dist > VIEW_DIST)
-        tchunk_generate(c, &terr->height_field, terr->light_shader, 2);
+      if (dist > VIEW_DIST_LOD2)
+        lod = 2;
+      else if (dist > VIEW_DIST_LOD1)
+        lod = 1;
       else
-        tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
+        lod = 0;
+      
+      tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
 
       c->is_active = true;
     }
@@ -368,14 +377,18 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
       Vector2 cm_pos2 = {cam_pos.x, cam_pos.z};
 
       float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
+      int lod = -1;
       
-      if (dist > VIEW_DIST) {
-        // c->is_active = false;
-      } else {
-        if (!IsModelValid(c->model) && terr->height_field.data)
-          tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
-        c->is_active = true;
-      }
+      if (dist > VIEW_DIST_LOD2)
+        lod = 2;
+      else if (dist > VIEW_DIST_LOD1)
+        lod = 1;
+      else
+        lod = 0;
+
+      // if (!IsModelValid(c->model) && terr->height_field.data)
+      if (terr->height_field.data)
+        tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
 
     }
   }

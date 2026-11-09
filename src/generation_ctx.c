@@ -7,6 +7,7 @@
 #include <raylib.h>
 #include <raymath.h>
 #include <limits.h>
+#include <time.h>
 
 void regenerate_map(GenerationCtx *ctx) {
   if (ctx->regenerate == 1) {
@@ -61,7 +62,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 
-  ctx->rand_seed = GetRandomValue(INT_MIN, INT_MAX);
+  ctx->rand_seed = (unsigned int)time(NULL);
   // ctx->rand_seed = 666;
   SetRandomSeed(ctx->rand_seed);
 
