@@ -3,6 +3,7 @@
 #include "generation_ctx.h"
 #include "map_gen.h"
 #include "map_gen_height.h"
+#include "utils.h"
 #include <raylib.h>
 #include <raymath.h>
 #include <math.h>
@@ -135,8 +136,10 @@ static float height_field_sample(const THeightField *field, float x, float y) {
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
+  //TODO Global height_power
   grid->height_power = 250.0f;
-  grid->size = size;
+  // Add more size for edges seamless gaps bettwen chunks
+  grid->size = v2(size.x+2, size.y+2);
   grid->spacing = spacing;
 
   grid->vert = (Vector3 **)malloc(grid->size.x * sizeof(Vector3 *));
@@ -155,9 +158,25 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
       int px = x * grid->spacing; 
       int pz = y * grid->spacing; 
 
-      float h = height_field_sample(height_field, (x+offset.x)*grid->spacing, (y+offset.y)*grid->spacing);
+      float h = 0;
+      float xof = 0;
+      float zof = 0;
 
-      grid->vert[x][y] = (Vector3){px, h*grid->height_power, pz};
+      // h = height_field_sample(height_field, (x+offset.x)*grid->spacing, (y+offset.y)*grid->spacing);
+      // h *= grid->height_power;
+
+      if (x > 0 && x < grid->size.x-1 && y > 0 && y < grid->size.y-1) {
+        h = height_field_sample(height_field, ((x-1)+offset.x)*grid->spacing, ((y-1)+offset.y)*grid->spacing);
+        h *= grid->height_power;
+      } else {
+        h -= CHUNCK_CUT_FALLOFF;
+        if (x == 0)              xof = grid->spacing;
+        if (x == grid->size.x-1) xof = -grid->spacing;
+        if (y == 0)              zof = grid->spacing;
+        if (y == grid->size.y-1) zof = -grid->spacing;
+      }
+
+      grid->vert[x][y] = (Vector3){(px+xof)-grid->spacing, h, (pz+zof)-grid->spacing};
     }
   }
 
@@ -232,7 +251,7 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
       height_field);
 
   Mesh tm = {0};
-  tm.triangleCount = 2 * ((chunk->grid.size.x - 1) * (chunk->grid.size.y - 1));
+  tm.triangleCount = 2 * ((chunk->grid.size.x-1) * (chunk->grid.size.y-1));
   if (tm.triangleCount <= 0)
     return;
   tm.vertexCount = tm.triangleCount * 3;
@@ -349,16 +368,23 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
       float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
       int lod = -1;
 
-      if (dist > VIEW_DIST_LOD2)
+      if (dist > VIEW_DIST_LOD2){
         lod = 2;
-      else if (dist > VIEW_DIST_LOD1)
+        c->is_active = false;
+    }
+      else if (dist > VIEW_DIST_LOD1){
         lod = 1;
-      else
+        c->is_active = false;
+      }
+      else {
         lod = 0;
+        c->is_active = true;
+      }
       
-      tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
+      if (c->is_active)
+        tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
 
-      c->is_active = true;
+      // c->is_active = true;
     }
   }
 }
@@ -396,10 +422,6 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
 void terrain_draw(Terrain *terr) {
 
-  // float sizex = (terr->grid.size.x*terr->grid.spacing)-terr->grid.spacing,
-  //       sizey = (terr->grid.size.y*terr->grid.spacing)-terr->grid.spacing;
-  //
-  // DrawModelWires(terr->model, (Vector3){-(sizex/4), 0.0f, -(sizey/4)}, 1.0f, WHITE);
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
 

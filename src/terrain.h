@@ -4,12 +4,13 @@
 #include "map_gen.h"
 #include <raylib.h>
 
-#define LOD0_GEO 128
+#define LOD0_GEO 128 
 #define LOD0_GE1 64
 #define LOD0_GE2 32
-#define VIEW_DIST_LOD1 40.0f*10000.0f
+#define VIEW_DIST_LOD1 30.0f*10000.0f
 #define VIEW_DIST_LOD2 60.0f*10000.0f
 #define CHUNCK_SPACE 256
+#define CHUNCK_CUT_FALLOFF 50
 
 typedef struct {
 

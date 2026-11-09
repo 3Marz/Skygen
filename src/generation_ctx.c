@@ -59,6 +59,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->screen_height = 800;
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+  SetConfigFlags(FLAG_MSAA_4X_HINT);
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 
@@ -169,9 +170,9 @@ void gen_ctx_draw(GenerationCtx *ctx) {
   switch (ctx->draw_mode) {
     case MODE_3D:
       BeginMode3D(ctx->camera);
-        BeginShaderMode(ctx->lctx.shader);
+        // BeginShaderMode(ctx->lctx.shader);
           terrain_draw(&ctx->terrain);
-        EndShaderMode();
+        // EndShaderMode();
       EndMode3D();
       DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 10, 20, RAYWHITE);
       break;
