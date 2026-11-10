@@ -13,7 +13,7 @@ void light_ctx_init(LightCtx *ctx) {
 
   // Ambient light level (some basic lighting)
   int ambientLoc = GetShaderLocation(ctx->shader, "ambient");
-  SetShaderValue(ctx->shader, ambientLoc, (float[4]){ 0.3f, 0.3f, 0.3f, 1.0f }, SHADER_UNIFORM_VEC4);
+  SetShaderValue(ctx->shader, ambientLoc, (float[4]){ 1.0f, 1.0f, 1.0f, 1.0f }, SHADER_UNIFORM_VEC4);
 
   float p = 100.0f;
   ctx->lights[0] = CreateLight(LIGHT_DIRECTIONAL, v3(p,p,p), v3(0.0f,0.0f,0.0f), WHITE, ctx->shader);

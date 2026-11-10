@@ -250,66 +250,143 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
       v2(chunk->position.x/(CHUNCK_SPACE/(s)), chunk->position.z/(CHUNCK_SPACE/(s))),
       height_field);
 
+  int width = chunk->grid.size.x,
+      height = chunk->grid.size.y;
+
   Mesh tm = {0};
-  tm.triangleCount = 2 * ((chunk->grid.size.x-1) * (chunk->grid.size.y-1));
+  tm.triangleCount = 2 * ((width-1) * (height-1));
   if (tm.triangleCount <= 0)
     return;
-  tm.vertexCount = tm.triangleCount * 3;
+  // tm.vertexCount = tm.triangleCount * 3;
+  tm.vertexCount = width * height;
 
   tm.vertices = (float *)MemAlloc(tm.vertexCount * 3 * sizeof(float));
   tm.normals = (float *)MemAlloc(tm.vertexCount * 3 * sizeof(float));
   tm.texcoords = (float *)MemAlloc(tm.vertexCount * 2 * sizeof(float));
+  tm.indices = (unsigned short *)MemAlloc( ((width-1) * (height-1) * 6) * sizeof(unsigned short));
+
+  // init verts
+  for (int x = 0; x < width; x++) {
+    for (int y = 0; y < height; y++) {
+
+      int i = x * height + y; 
+      Vector3 point = chunk->grid.vert[x][y];
+
+      tmesh_set_vert(&tm, i, point);
+      tmesh_set_normal(&tm, i, Vector3Zero());
+
+      tmesh_set_texcord(&tm, i, 
+        (float)x / (width - 1),
+        (float)y / (height - 1)
+      );
+
+    }
+  }
 
   int vi = 0;
-  for (int x = 0; x < chunk->grid.size.x - 1; x++) {
-    for (int y = 0; y < chunk->grid.size.y - 1; y++) {
+  for (int x = 0; x < width - 1; x++) {
+    for (int y = 0; y < height - 1; y++) {
 
-      //-------------------------First Tri in face---------------------------//
-      Vector3 a1 = chunk->grid.vert[0 + x][0 + y],
-              b1 = chunk->grid.vert[0 + x][1 + y],
-              c1 = chunk->grid.vert[1 + x][0 + y];
+      int a = x * height + y;
+      int b = x * height + (y + 1);
+      int c = (x + 1) * height + y;
+      int d = (x + 1) * height + (y + 1);
 
-      tmesh_set_vert(&tm, vi,     a1);
-      tmesh_set_vert(&tm, vi + 1, b1);
-      tmesh_set_vert(&tm, vi + 2, c1);
-      Vector3 edgeA1 = Vector3Subtract(b1, a1);
-      Vector3 edgeB1 = Vector3Subtract(c1, a1);
-      Vector3 face_normal1 = Vector3CrossProduct(edgeA1, edgeB1);
+      // First triangle: A, B, C
+      tm.indices[vi++] = a;
+      tm.indices[vi++] = b;
+      tm.indices[vi++] = c;
 
-      tmesh_add_normal(&tm, vi,   face_normal1);
-      tmesh_add_normal(&tm, vi+1, face_normal1);
-      tmesh_add_normal(&tm, vi+2, face_normal1);
+      // Second triangle: B, D, C
+      tm.indices[vi++] = b;
+      tm.indices[vi++] = d;
+      tm.indices[vi++] = c;
 
-      //-------------------------Second Tri in face---------------------------//
-      Vector3 a2 = chunk->grid.vert[0 + x][1 + y],
-              b2 = chunk->grid.vert[1 + x][1 + y],
-              c2 = chunk->grid.vert[1 + x][0 + y];
+      // First triangle normal
+      Vector3 edgeA = Vector3Subtract(
+          chunk->grid.vert[x][y + 1],
+          chunk->grid.vert[x][y]
+      );
 
-      tmesh_set_vert(&tm, vi + 3, a2);
-      tmesh_set_vert(&tm, vi + 4, b2);
-      tmesh_set_vert(&tm, vi + 5, c2);
-      Vector3 edgeA2 = Vector3Subtract(b2, a2);
-      Vector3 edgeB2 = Vector3Subtract(c2, a2);
-      Vector3 face_normal2 = Vector3CrossProduct(edgeA2, edgeB2);
+      Vector3 edgeB = Vector3Subtract(
+          chunk->grid.vert[x + 1][y],
+          chunk->grid.vert[x][y]
+      );
 
-      tmesh_add_normal(&tm, vi+3, face_normal2);
-      tmesh_add_normal(&tm, vi+4, face_normal2);
-      tmesh_add_normal(&tm, vi+5, face_normal2);
+      Vector3 normal1 = Vector3CrossProduct(edgeA, edgeB);
 
-      vi += 6;
+      if (x == 0 || x == width - 2 || y == 0 || y == height - 2) {
+        tmesh_set_normal(&tm, a, normal1);
+        tmesh_set_normal(&tm, b, normal1);
+        tmesh_set_normal(&tm, c, normal1);
+      } else {
+        tmesh_add_normal(&tm, a, normal1);
+        tmesh_add_normal(&tm, b, normal1);
+        tmesh_add_normal(&tm, c, normal1);
+      }
+
+      // Second triangle normal
+      Vector3 edgeA2 = Vector3Subtract(
+          chunk->grid.vert[x + 1][y + 1],
+          chunk->grid.vert[x][y + 1]
+      );
+
+      Vector3 edgeB2 = Vector3Subtract(
+          chunk->grid.vert[x + 1][y],
+          chunk->grid.vert[x][y + 1]
+      );
+
+      Vector3 normal2 = Vector3CrossProduct(edgeA2, edgeB2);
+
+      if (x == 0 || x == width - 2 || y == 0 || y == height - 2) {
+        tmesh_set_normal(&tm, b, normal2);
+        tmesh_set_normal(&tm, d, normal2);
+        tmesh_set_normal(&tm, c, normal2);
+      } else {
+        tmesh_add_normal(&tm, b, normal2);
+        tmesh_add_normal(&tm, d, normal2);
+        tmesh_add_normal(&tm, c, normal2);
+      }
+
+      // //-------------------------First Tri in face---------------------------//
+      // Vector3 a1 = chunk->grid.vert[0 + x][0 + y],
+      //         b1 = chunk->grid.vert[0 + x][1 + y],
+      //         c1 = chunk->grid.vert[1 + x][0 + y];
+      //
+      // tmesh_set_vert(&tm, vi,     a1);
+      // tmesh_set_vert(&tm, vi + 1, b1);
+      // tmesh_set_vert(&tm, vi + 2, c1);
+      // Vector3 edgeA1 = Vector3Subtract(b1, a1);
+      // Vector3 edgeB1 = Vector3Subtract(c1, a1);
+      // Vector3 face_normal1 = Vector3CrossProduct(edgeA1, edgeB1);
+      //
+      // tmesh_add_normal(&tm, vi,   face_normal1);
+      // tmesh_add_normal(&tm, vi+1, face_normal1);
+      // tmesh_add_normal(&tm, vi+2, face_normal1);
+      //
+      // //-------------------------Second Tri in face---------------------------//
+      // Vector3 a2 = chunk->grid.vert[0 + x][1 + y],
+      //         b2 = chunk->grid.vert[1 + x][1 + y],
+      //         c2 = chunk->grid.vert[1 + x][0 + y];
+      //
+      // tmesh_set_vert(&tm, vi + 3, a2);
+      // tmesh_set_vert(&tm, vi + 4, b2);
+      // tmesh_set_vert(&tm, vi + 5, c2);
+      // Vector3 edgeA2 = Vector3Subtract(b2, a2);
+      // Vector3 edgeB2 = Vector3Subtract(c2, a2);
+      // Vector3 face_normal2 = Vector3CrossProduct(edgeA2, edgeB2);
+      //
+      // tmesh_add_normal(&tm, vi+3, face_normal2);
+      // tmesh_add_normal(&tm, vi+4, face_normal2);
+      // tmesh_add_normal(&tm, vi+5, face_normal2);
+      //
+      // vi += 6;
     }
   }
 
   for (int i = 0; i < tm.vertexCount; i++) {
     Vector3 v_normal = v3(tm.normals[i * 3], tm.normals[i * 3+1], tm.normals[i * 3+2]); 
     tmesh_set_normal(&tm, i, Vector3Normalize(v_normal));
-    // tm.normals[i * 3] = 0.0f;
-    // tm.normals[i * 3 + 1] = 1.0f;
-    // tm.normals[i * 3 + 2] = 0.0f;
-
-    // tm.texcoords[i * 2] = 0.0f;
-    // tm.texcoords[i * 2 + 1] = 0.0f;
-    tmesh_set_texcord(&tm, i  , 0.0f, 0.0f);
   }
 
   UploadMesh(&tm, false);
