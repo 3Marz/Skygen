@@ -10,7 +10,7 @@
 #define VIEW_DIST_LOD1 30.0f*10000.0f
 #define VIEW_DIST_LOD2 60.0f*10000.0f
 #define CHUNCK_SPACE 256
-#define CHUNCK_CUT_FALLOFF 50
+#define CHUNCK_CUT_FALLOFF 10
 
 typedef struct {
 

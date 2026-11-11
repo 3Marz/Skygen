@@ -15,7 +15,7 @@
  * cache small; the blur hides the C0 creases of the barycentric field, which
  * would otherwise make every Delaunay triangle a flat-shaded plane. */
 #define HEIGHT_FIELD_STEP 2
-#define HEIGHT_FIELD_BLUR_SCALE 0.30f /* blur sigma as a fraction of site spacing */
+#define HEIGHT_FIELD_BLUR_SCALE 0.10f /* blur sigma as a fraction of site spacing */
 #define HEIGHT_FIELD_BLUR_PASSES 2
 
 static void height_field_free(THeightField *field) {
@@ -164,10 +164,11 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
 
       // h = height_field_sample(height_field, (x+offset.x)*grid->spacing, (y+offset.y)*grid->spacing);
       // h *= grid->height_power;
+      
+      h = height_field_sample(height_field, ((x-1)+offset.x)*grid->spacing, ((y-1)+offset.y)*grid->spacing);
+      h *= grid->height_power;
 
       if (x > 0 && x < grid->size.x-1 && y > 0 && y < grid->size.y-1) {
-        h = height_field_sample(height_field, ((x-1)+offset.x)*grid->spacing, ((y-1)+offset.y)*grid->spacing);
-        h *= grid->height_power;
       } else {
         h -= CHUNCK_CUT_FALLOFF;
         if (x == 0)              xof = grid->spacing;
