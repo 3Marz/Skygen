@@ -5,8 +5,8 @@
 #include "map_gen.h"
 #include "terrain.h"
 
-#define MAP_SIZE_X 2048 // Must be divided by CHUNCK_SIZE
-#define MAP_SIZE_Y 2048 // Must be divided by CHUNCK_SIZE
+#define MAP_SIZE_X 2048 // Must be divided by CHUNK_SIZE
+#define MAP_SIZE_Y 2048 // Must be divided by CHUNK_SIZE
 
 typedef struct {
   unsigned int rand_seed;

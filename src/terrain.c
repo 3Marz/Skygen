@@ -4,9 +4,13 @@
 #include "map_gen.h"
 #include "map_gen_height.h"
 #include "utils.h"
+#include "../include/hashmap.h"
 #include <raylib.h>
 #include <raymath.h>
 #include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 
@@ -170,7 +174,7 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
 
       if (x > 0 && x < grid->size.x-1 && y > 0 && y < grid->size.y-1) {
       } else {
-        h -= CHUNCK_CUT_FALLOFF;
+        h -= CHUNK_CUT_FALLOFF;
         if (x == 0)              xof = grid->spacing;
         if (x == grid->size.x-1) xof = -grid->spacing;
         if (y == 0)              zof = grid->spacing;
@@ -246,9 +250,9 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
 
   int lods[3] = {LOD0_GEO, LOD0_GE1, LOD0_GE2};
   float s = lods[lod_level];
-  tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNCK_SPACE/(s));
+  tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNK_SPACE/(s));
   tgrid_generate(&chunk->grid, 
-      v2(chunk->position.x/(CHUNCK_SPACE/(s)), chunk->position.z/(CHUNCK_SPACE/(s))),
+      v2(chunk->position.x/(CHUNK_SPACE/(s)), chunk->position.z/(CHUNK_SPACE/(s))),
       height_field);
 
   int width = chunk->grid.size.x,
@@ -364,8 +368,9 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
 }
 
 TChunk* get_chunk(Terrain *terr, int x, int y) {
+  x = clamp(x, 0, terr->nchunk.x -1);
+  y = clamp(y, 0, terr->nchunk.y -1);
   int idx = x * (int)terr->nchunk.x + y;
-  if (idx >= terr->nchunk.x * terr->nchunk.y || idx < 0) return NULL;
   return &terr->chunk[idx];
 }
 
@@ -373,7 +378,7 @@ void terrain_init(Terrain *terr, Shader *light_shader) {
 
   terr->light_shader = light_shader;
   terr->nchunk = (Vector2){
-    (float)MAP_SIZE_X/CHUNCK_SPACE, (float)MAP_SIZE_Y/CHUNCK_SPACE
+    (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
   terr->last_chunk = v2(-1, -1);
 
@@ -381,7 +386,7 @@ void terrain_init(Terrain *terr, Shader *light_shader) {
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
-      tchunk_init(get_chunk(terr, x, y), (Vector3){x*CHUNCK_SPACE, 0, y*CHUNCK_SPACE});
+      tchunk_init(get_chunk(terr, x, y), (Vector3){x*CHUNK_SPACE, 0, y*CHUNK_SPACE});
     }
   }
 
@@ -403,23 +408,69 @@ void terrain_clear(Terrain *terr) {
 }
 
 static Vector2 get_chunk_idx_v(Terrain *terr, Vector3 cam_pos) {
-  int x = floorf(cam_pos.x / CHUNCK_SPACE);
-  int y = floorf(cam_pos.z / CHUNCK_SPACE);
+  int x = floorf(cam_pos.x / CHUNK_SPACE);
+  int y = floorf(cam_pos.z / CHUNK_SPACE);
   return v2(x, y);
 }
 
-void update_chunks(Terrain *terr, Vector2 new_chunk) {
-  
-  TChunk *nc = get_chunk(terr, new_chunk.x, new_chunk.y); 
+// hashmap for chunks ID and LOD LEVEL to load
+typedef struct {
+  int id;
+  int lod_level;
+} ChunkLoad;
 
-  for (int i = -VIEW_DIST_LOD0; i <= VIEW_DIST_LOD0; i++) {
-    for (int j = -VIEW_DIST_LOD0; j <= VIEW_DIST_LOD0; j++) {
-      TChunk *c = get_chunk(terr, new_chunk.x + i, new_chunk.y + j);
-      if (c == NULL) continue;
-      tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
+int cl_compare(const void *a, const void *b, void *udata) {
+  const ChunkLoad *ca = a;
+  const ChunkLoad *cb = b;
+  return ca->id == cb->id;
+}
+uint64_t cl_hash(const void *item, uint64_t seed0, uint64_t seed1) {
+  const ChunkLoad *cl = item;
+  return hashmap_sip(&cl->id, sizeof(int), seed0, seed1);
+}
+
+void update_chunks(Terrain *terr, Vector2 new_chunk) {
+
+  struct hashmap *map = hashmap_new(sizeof(ChunkLoad), 0, 0, 0, 
+                                    cl_hash, cl_compare, NULL, NULL);
+
+  for (int i = -VIEW_DIST_LOD2; i <= VIEW_DIST_LOD2; i++) {
+    for (int j = -VIEW_DIST_LOD2; j <= VIEW_DIST_LOD2; j++) {
+      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
+      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
+      int id = x * (int)terr->nchunk.x + y;
+      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 2});
     }
   }
 
+  for (int i = -VIEW_DIST_LOD1; i <= VIEW_DIST_LOD1; i++) {
+    for (int j = -VIEW_DIST_LOD1; j <= VIEW_DIST_LOD1; j++) {
+      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
+      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
+      int id = x * (int)terr->nchunk.x + y;
+      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 1});
+    }
+  }
+
+  for (int i = -VIEW_DIST_LOD0; i <= VIEW_DIST_LOD0; i++) {
+    for (int j = -VIEW_DIST_LOD0; j <= VIEW_DIST_LOD0; j++) {
+      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
+      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
+      int id = x * (int)terr->nchunk.x + y;
+      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 0});
+    }
+  }
+
+  size_t iter = 0;
+  void *item;
+  while (hashmap_iter(map, &iter, &item)) {
+    const ChunkLoad *cl = item;
+    TChunk *c = &terr->chunk[cl->id];
+    if (c == NULL) return;
+    tchunk_generate(c, &terr->height_field, terr->light_shader, cl->lod_level);
+  }
+
+  hashmap_free(map);
 }
 
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos) {

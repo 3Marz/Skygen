@@ -16,8 +16,8 @@
 #define VIEW_DIST_LOD1 2
 #define VIEW_DIST_LOD2 4
 
-#define CHUNCK_SPACE 256
-#define CHUNCK_CUT_FALLOFF 10
+#define CHUNK_SPACE 256
+#define CHUNK_CUT_FALLOFF 10
 
 typedef struct {
 
