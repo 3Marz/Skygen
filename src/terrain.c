@@ -349,39 +349,6 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
         tmesh_add_normal(&tm, c, normal2);
       }
 
-      // //-------------------------First Tri in face---------------------------//
-      // Vector3 a1 = chunk->grid.vert[0 + x][0 + y],
-      //         b1 = chunk->grid.vert[0 + x][1 + y],
-      //         c1 = chunk->grid.vert[1 + x][0 + y];
-      //
-      // tmesh_set_vert(&tm, vi,     a1);
-      // tmesh_set_vert(&tm, vi + 1, b1);
-      // tmesh_set_vert(&tm, vi + 2, c1);
-      // Vector3 edgeA1 = Vector3Subtract(b1, a1);
-      // Vector3 edgeB1 = Vector3Subtract(c1, a1);
-      // Vector3 face_normal1 = Vector3CrossProduct(edgeA1, edgeB1);
-      //
-      // tmesh_add_normal(&tm, vi,   face_normal1);
-      // tmesh_add_normal(&tm, vi+1, face_normal1);
-      // tmesh_add_normal(&tm, vi+2, face_normal1);
-      //
-      // //-------------------------Second Tri in face---------------------------//
-      // Vector3 a2 = chunk->grid.vert[0 + x][1 + y],
-      //         b2 = chunk->grid.vert[1 + x][1 + y],
-      //         c2 = chunk->grid.vert[1 + x][0 + y];
-      //
-      // tmesh_set_vert(&tm, vi + 3, a2);
-      // tmesh_set_vert(&tm, vi + 4, b2);
-      // tmesh_set_vert(&tm, vi + 5, c2);
-      // Vector3 edgeA2 = Vector3Subtract(b2, a2);
-      // Vector3 edgeB2 = Vector3Subtract(c2, a2);
-      // Vector3 face_normal2 = Vector3CrossProduct(edgeA2, edgeB2);
-      //
-      // tmesh_add_normal(&tm, vi+3, face_normal2);
-      // tmesh_add_normal(&tm, vi+4, face_normal2);
-      // tmesh_add_normal(&tm, vi+5, face_normal2);
-      //
-      // vi += 6;
     }
   }
 
@@ -396,21 +363,25 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
   chunk->model.materials[0].shader = *light_shader;
 }
 
+TChunk* get_chunk(Terrain *terr, int x, int y) {
+  int idx = x * (int)terr->nchunk.x + y;
+  if (idx >= terr->nchunk.x * terr->nchunk.y || idx < 0) return NULL;
+  return &terr->chunk[idx];
+}
+
 void terrain_init(Terrain *terr, Shader *light_shader) {
 
   terr->light_shader = light_shader;
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNCK_SPACE, (float)MAP_SIZE_Y/CHUNCK_SPACE
   };
+  terr->last_chunk = v2(-1, -1);
 
-  terr->chunk = (TChunk **)malloc(terr->nchunk.x * sizeof(TChunk *));
-  for (int i = 0; i < terr->nchunk.y; i++) {
-    terr->chunk[i] = (TChunk *)malloc(terr->nchunk.y * sizeof(TChunk));
-  }
+  terr->chunk = (TChunk *)malloc(terr->nchunk.x * terr->nchunk.y * sizeof(TChunk));
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
-      tchunk_init(&terr->chunk[x][y], (Vector3){x*CHUNCK_SPACE, 0, y*CHUNCK_SPACE});
+      tchunk_init(get_chunk(terr, x, y), (Vector3){x*CHUNCK_SPACE, 0, y*CHUNCK_SPACE});
     }
   }
 
@@ -423,12 +394,32 @@ void terrain_clear(Terrain *terr) {
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
-      TChunk *c = &terr->chunk[x][y];
+      TChunk *c = get_chunk(terr, x, y);
       Vector3 position = c->position;
       tchunk_free(c);
       tchunk_init(c, position);
     }
   }
+}
+
+static Vector2 get_chunk_idx_v(Terrain *terr, Vector3 cam_pos) {
+  int x = floorf(cam_pos.x / CHUNCK_SPACE);
+  int y = floorf(cam_pos.z / CHUNCK_SPACE);
+  return v2(x, y);
+}
+
+void update_chunks(Terrain *terr, Vector2 new_chunk) {
+  
+  TChunk *nc = get_chunk(terr, new_chunk.x, new_chunk.y); 
+
+  for (int i = -VIEW_DIST_LOD0; i <= VIEW_DIST_LOD0; i++) {
+    for (int j = -VIEW_DIST_LOD0; j <= VIEW_DIST_LOD0; j++) {
+      TChunk *c = get_chunk(terr, new_chunk.x + i, new_chunk.y + j);
+      if (c == NULL) continue;
+      tchunk_generate(c, &terr->height_field, terr->light_shader, 0);
+    }
+  }
+
 }
 
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos) {
@@ -437,65 +428,78 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
   height_field_build(&terr->height_field, map);
   if (!terr->height_field.data) return;
 
-  for (int x = 0; x < terr->nchunk.x; x++) {
-    for (int y = 0; y < terr->nchunk.y; y++) {
+  Vector2 curr_chunk = get_chunk_idx_v(terr, inital_cam_pos);
 
-      TChunk *c = &terr->chunk[x][y];
-      Vector2 ch_pos2 = {c->position.x, c->position.z};
-      Vector2 cm_pos2 = {inital_cam_pos.x, inital_cam_pos.z};
-      float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
-      int lod = -1;
-
-      if (dist > VIEW_DIST_LOD2){
-        lod = 2;
-        c->is_active = false;
-    }
-      else if (dist > VIEW_DIST_LOD1){
-        lod = 1;
-        c->is_active = false;
-      }
-      else {
-        lod = 0;
-        c->is_active = true;
-      }
-      
-      if (c->is_active)
-        tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
-
-      // c->is_active = true;
-    }
+  if (!Vector2Equals(curr_chunk, terr->last_chunk)) {
+    update_chunks(terr, curr_chunk);
+    terr->last_chunk = curr_chunk;
   }
+
+  // for (int x = 0; x < terr->nchunk.x; x++) {
+  //   for (int y = 0; y < terr->nchunk.y; y++) {
+  //     TChunk *c = get_chunk(terr, x, y);
+  //     Vector2 ch_pos2 = {c->position.x, c->position.z};
+  //     Vector2 cm_pos2 = {inital_cam_pos.x, inital_cam_pos.z};
+  //     float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
+  //     int lod = -1;
+  //
+  //     if (dist > VIEW_DIST_LOD2){
+  //       lod = 2;
+  //       c->is_active = false;
+  //   }
+  //     else if (dist > VIEW_DIST_LOD1){
+  //       lod = 1;
+  //       c->is_active = false;
+  //     }
+  //     else {
+  //       lod = 0;
+  //       c->is_active = true;
+  //     }
+  //
+  //     if (c->is_active)
+  //       tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
+  //
+  //     // c->is_active = true;
+  //   }
+  // }
 }
 
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
   if (!terr->height_field.data)
     height_field_build(&terr->height_field, map);
 
-  for (int x = 0; x < terr->nchunk.x; x++) {
-    for (int y = 0; y < terr->nchunk.y; y++) {
-      TChunk *c = &terr->chunk[x][y];
-      Vector2 ch_pos2 = {
-        c->position.x,//+((c->grid.size.x*c->grid.spacing)/2),
-        c->position.z //+((c->grid.size.y*c->grid.spacing)/2)
-      };
-      Vector2 cm_pos2 = {cam_pos.x, cam_pos.z};
+  Vector2 curr_chunk = get_chunk_idx_v(terr, cam_pos);
 
-      float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
-      int lod = -1;
-      
-      if (dist > VIEW_DIST_LOD2)
-        lod = 2;
-      else if (dist > VIEW_DIST_LOD1)
-        lod = 1;
-      else
-        lod = 0;
-
-      // if (!IsModelValid(c->model) && terr->height_field.data)
-      if (terr->height_field.data)
-        tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
-
-    }
+  if (!Vector2Equals(curr_chunk, terr->last_chunk)) {
+    update_chunks(terr, curr_chunk);
+    terr->last_chunk = curr_chunk;
   }
+
+  // for (int x = 0; x < terr->nchunk.x; x++) {
+  //   for (int y = 0; y < terr->nchunk.y; y++) {
+  //     TChunk *c = get_chunk(terr, x, y);
+  //     Vector2 ch_pos2 = {
+  //       c->position.x,//+((c->grid.size.x*c->grid.spacing)/2),
+  //       c->position.z //+((c->grid.size.y*c->grid.spacing)/2)
+  //     };
+  //     Vector2 cm_pos2 = {cam_pos.x, cam_pos.z};
+  //
+  //     float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
+  //     int lod = -1;
+  //
+  //     if (dist > VIEW_DIST_LOD2)
+  //       lod = 2;
+  //     else if (dist > VIEW_DIST_LOD1)
+  //       lod = 1;
+  //     else
+  //       lod = 0;
+  //
+  //     // if (!IsModelValid(c->model) && terr->height_field.data)
+  //     if (terr->height_field.data)
+  //       tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
+  //
+  //   }
+  // }
 }
 
 void terrain_draw(Terrain *terr) {
@@ -503,9 +507,9 @@ void terrain_draw(Terrain *terr) {
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
 
-      TChunk *c = &terr->chunk[x][y];
+      TChunk *c = get_chunk(terr, x, y);
       if (c->is_active && IsModelValid(c->model)) {
-        DrawModel(c->model, c->position, 1.0f, (Color){61, 245, 73, 225});
+        DrawModelWires(c->model, c->position, 1.0f, (Color){61, 245, 73, 225});
       }
     }
   }
@@ -514,13 +518,8 @@ void terrain_draw(Terrain *terr) {
 
 void terrain_free(Terrain *terr) {
 
-  for (int x = 0; x < terr->nchunk.x; x++) {
-    for (int y = 0; y < terr->nchunk.y; y++) {
-      tchunk_free(&terr->chunk[x][y]);
-    }
-  }
-  for (int x = 0; x < terr->nchunk.x; x++) {
-    free(terr->chunk[x]); terr->chunk[x] = NULL;
+  for (int i = 0; i < terr->nchunk.x * terr->nchunk.y; i++) {
+    tchunk_free(&terr->chunk[i]);
   }
   free(terr->chunk); terr->chunk = NULL;
 

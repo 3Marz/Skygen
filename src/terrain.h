@@ -7,8 +7,15 @@
 #define LOD0_GEO 128 
 #define LOD0_GE1 64
 #define LOD0_GE2 32
-#define VIEW_DIST_LOD1 30.0f*10000.0f
-#define VIEW_DIST_LOD2 60.0f*10000.0f
+
+// #define VIEW_DIST_LOD0 30.0f*10000.0f
+// #define VIEW_DIST_LOD1 30.0f*10000.0f
+// #define VIEW_DIST_LOD2 60.0f*10000.0f
+
+#define VIEW_DIST_LOD0 1
+#define VIEW_DIST_LOD1 2
+#define VIEW_DIST_LOD2 4
+
 #define CHUNCK_SPACE 256
 #define CHUNCK_CUT_FALLOFF 10
 
@@ -47,8 +54,10 @@ typedef struct {
 
   THeightField height_field;
 
-  TChunk **chunk;
+  TChunk *chunk;
   Vector2 nchunk;
+
+  Vector2 last_chunk;
 
 } Terrain;
 
