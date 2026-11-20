@@ -368,10 +368,12 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
 }
 
 TChunk* get_chunk(Terrain *terr, int x, int y) {
-  x = clamp(x, 0, terr->nchunk.x -1);
-  y = clamp(y, 0, terr->nchunk.y -1);
-  int idx = x * (int)terr->nchunk.x + y;
-  return &terr->chunk[idx];
+  // x = clamp(x, 0, terr->nchunk.x -1);
+  // y = clamp(y, 0, terr->nchunk.y -1);
+  if ((x >= 0 && x < terr->nchunk.x) && (y >= 0 && y < terr->nchunk.y))
+    return &terr->chunk[x][y];
+
+  return NULL;
 }
 
 void terrain_init(Terrain *terr, Shader *light_shader) {
@@ -382,11 +384,14 @@ void terrain_init(Terrain *terr, Shader *light_shader) {
   };
   terr->last_chunk = v2(-1, -1);
 
-  terr->chunk = (TChunk *)malloc(terr->nchunk.x * terr->nchunk.y * sizeof(TChunk));
+  terr->chunk = (TChunk **)malloc(terr->nchunk.x * sizeof(TChunk *));
+  for (int i = 0; i < terr->nchunk.x; i++) {
+    terr->chunk[i] = (TChunk *)malloc(terr->nchunk.y * sizeof(TChunk));
+  }
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
-      tchunk_init(get_chunk(terr, x, y), (Vector3){x*CHUNK_SPACE, 0, y*CHUNK_SPACE});
+      tchunk_init(&terr->chunk[x][y], (Vector3){x*CHUNK_SPACE, 0, y*CHUNK_SPACE});
     }
   }
 
@@ -415,18 +420,27 @@ static Vector2 get_chunk_idx_v(Terrain *terr, Vector3 cam_pos) {
 
 // hashmap for chunks ID and LOD LEVEL to load
 typedef struct {
-  int id;
+  Vector2 id;
   int lod_level;
 } ChunkLoad;
 
 int cl_compare(const void *a, const void *b, void *udata) {
   const ChunkLoad *ca = a;
   const ChunkLoad *cb = b;
-  return ca->id == cb->id;
+  return Vector2Equals(ca->id, cb->id);
 }
 uint64_t cl_hash(const void *item, uint64_t seed0, uint64_t seed1) {
   const ChunkLoad *cl = item;
-  return hashmap_sip(&cl->id, sizeof(int), seed0, seed1);
+  return hashmap_sip(&cl->id.x, sizeof(int), seed0, seed1) + hashmap_xxhash3(&cl->id.y, sizeof(int), seed0, seed1);
+}
+
+bool vec_in_range(int range, Vector2 vec) {
+
+  if (vec.x >= -range && vec.x <= range &&
+      vec.y >= -range && vec.y <= range)
+    return true;
+
+  return false;
 }
 
 void update_chunks(Terrain *terr, Vector2 new_chunk) {
@@ -434,39 +448,59 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
   struct hashmap *map = hashmap_new(sizeof(ChunkLoad), 0, 0, 0, 
                                     cl_hash, cl_compare, NULL, NULL);
 
+  // printf("\n");
   for (int i = -VIEW_DIST_LOD2; i <= VIEW_DIST_LOD2; i++) {
     for (int j = -VIEW_DIST_LOD2; j <= VIEW_DIST_LOD2; j++) {
-      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
-      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
-      int id = x * (int)terr->nchunk.x + y;
-      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 2});
+      int x = new_chunk.x + i;
+      int y = new_chunk.y + j;
+
+      int lod_level = -1;
+      Vector2 p = v2(i, j);
+
+      if (vec_in_range(VIEW_DIST_LOD0, p))
+        lod_level = 0;
+      else if (vec_in_range(VIEW_DIST_LOD1, p))
+        lod_level = 1;
+      else {
+        lod_level = 2;
+      }
+
+      // TChunk *c = get_chunk(terr, x, y);
+      // int id = x * terr->nchunk.x + y;
+      // TChunk *c = get_chunk(terr, x, y);
+      if (get_chunk(terr, x, y) == NULL) continue;
+
+      // tchunk_generate(c, &terr->height_field, terr->light_shader, lod_level);
+      // int id = x * terr->nchunk.x + y;
+      hashmap_set(map, &(ChunkLoad){.id = v2(x, y), .lod_level = lod_level});
     }
+    // printf("\n");
   }
 
-  for (int i = -VIEW_DIST_LOD1; i <= VIEW_DIST_LOD1; i++) {
-    for (int j = -VIEW_DIST_LOD1; j <= VIEW_DIST_LOD1; j++) {
-      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
-      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
-      int id = x * (int)terr->nchunk.x + y;
-      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 1});
-    }
-  }
-
-  for (int i = -VIEW_DIST_LOD0; i <= VIEW_DIST_LOD0; i++) {
-    for (int j = -VIEW_DIST_LOD0; j <= VIEW_DIST_LOD0; j++) {
-      int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
-      int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
-      int id = x * (int)terr->nchunk.x + y;
-      hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 0});
-    }
-  }
+  // for (int i = -VIEW_DIST_LOD1; i <= VIEW_DIST_LOD1; i++) {
+  //   for (int j = -VIEW_DIST_LOD1; j <= VIEW_DIST_LOD1; j++) {
+  //     int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
+  //     int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
+  //     int id = x * (int)terr->nchunk.x + y;
+  //     hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 1});
+  //   }
+  // }
+  //
+  // for (int i = -VIEW_DIST_LOD0; i <= VIEW_DIST_LOD0; i++) {
+  //   for (int j = -VIEW_DIST_LOD0; j <= VIEW_DIST_LOD0; j++) {
+  //     int x = clamp(new_chunk.x + i, 0, terr->nchunk.x - 1);
+  //     int y = clamp(new_chunk.y + j, 0, terr->nchunk.y - 1);
+  //     int id = x * (int)terr->nchunk.x + y;
+  //     hashmap_set(map, &(ChunkLoad){.id = id, .lod_level = 0});
+  //   }
+  // }
 
   size_t iter = 0;
   void *item;
   while (hashmap_iter(map, &iter, &item)) {
     const ChunkLoad *cl = item;
-    TChunk *c = &terr->chunk[cl->id];
-    if (c == NULL) return;
+    TChunk *c = get_chunk(terr, cl->id.x, cl->id.y);
+    if (c == NULL) continue;
     tchunk_generate(c, &terr->height_field, terr->light_shader, cl->lod_level);
   }
 
@@ -569,8 +603,13 @@ void terrain_draw(Terrain *terr) {
 
 void terrain_free(Terrain *terr) {
 
-  for (int i = 0; i < terr->nchunk.x * terr->nchunk.y; i++) {
-    tchunk_free(&terr->chunk[i]);
+  for (int i = 0; i < terr->nchunk.x; i++) {
+    for (int j = 0; j < terr->nchunk.y; j++) {
+      tchunk_free(&terr->chunk[i][j]);
+    }
+  }
+  for (int i = 0; i < terr->nchunk.x; i++) {
+    free(terr->chunk[i]); terr->chunk[i] = NULL;
   }
   free(terr->chunk); terr->chunk = NULL;
 

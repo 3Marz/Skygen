@@ -14,7 +14,7 @@
 
 #define VIEW_DIST_LOD0 1
 #define VIEW_DIST_LOD1 2
-#define VIEW_DIST_LOD2 4
+#define VIEW_DIST_LOD2 3
 
 #define CHUNK_SPACE 256
 #define CHUNK_CUT_FALLOFF 10
@@ -54,7 +54,7 @@ typedef struct {
 
   THeightField height_field;
 
-  TChunk *chunk;
+  TChunk **chunk;
   Vector2 nchunk;
 
   Vector2 last_chunk;
