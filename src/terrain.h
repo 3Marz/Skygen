@@ -4,9 +4,9 @@
 #include "map_gen.h"
 #include <raylib.h>
 
-#define LOD0_GEO 128 
-#define LOD0_GE1 64
-#define LOD0_GE2 32
+#define LOD0_GEO 32 
+#define LOD0_GE1 16
+#define LOD0_GE2 8
 
 // #define VIEW_DIST_LOD0 30.0f*10000.0f
 // #define VIEW_DIST_LOD1 30.0f*10000.0f
@@ -18,6 +18,13 @@
 
 #define CHUNK_SPACE 256
 #define CHUNK_CUT_FALLOFF 10
+
+enum TCHUNK_NEIGHBOR_LOD {
+  N_TOP,
+  N_BOTTOM,
+  N_LEFT,
+  N_RIGHT,
+};
 
 typedef struct {
 
@@ -35,7 +42,9 @@ typedef struct {
   TGrid grid;
   Model model;
   bool is_active;
+
   int lod_level;
+  int neigh_lods[4];
 
 } TChunk;
 
@@ -58,6 +67,8 @@ typedef struct {
   Vector2 nchunk;
 
   Vector2 last_chunk;
+
+  bool wire_draw;
 
 } Terrain;
 
