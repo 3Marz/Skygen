@@ -170,11 +170,6 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
       float h = height_field_sample(height_field, (x+offset.x)*grid->spacing, (y+offset.y)*grid->spacing);
       h *= grid->height_power;
       
-      // if (x > 0 && x < grid->size.x-1 && y > 0 && y < grid->size.y-1) {
-      // } else {
-      //   h -= CHUNK_CUT_FALLOFF;
-      // }
-
       if (y <= 0)
         top_side[ti++] = v2(x, y);    //TOP
 
@@ -188,33 +183,51 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
         right_side[ri++] = v2(x, y);  //RIGHT
 
 
-      grid->vert[x][y] = (Vector3){px, 0, pz};
+      grid->vert[x][y] = (Vector3){px, h, pz};
     }
   }
 
-  if (neigh_lods[N_TOP] != -1 && neigh_lods[N_TOP] < curr_lod) {
-    // printv(&neigh_lods[N_TOP], T_INT);
-    for (int i = 0; i < grid->size.x; i++) {
-      Vector2 id = top_side[i];
-      Vector3 old_v = grid->vert[(int)id.x][(int)id.y];
-      grid->vert[(int)id.x][(int)id.y] = (Vector3){old_v.x, old_v.y + CHUNK_CUT_FALLOFF*5, old_v.z};
+  int sides[4] = {N_TOP, N_BOTTOM, N_LEFT, N_RIGHT};
+  for (int s = 0; s < 4; s++) {
+    const int SIDE = sides[s];
+    if (neigh_lods[SIDE] != -1 && neigh_lods[SIDE] > curr_lod) {
+
+      int itr_size = s > 1 ? grid->size.y : grid->size.x; // iter size for top/bottom or left/right;
+
+      for (int i = 0; i < grid->size.x; i++) {
+        if (i % 2 == 0) continue;
+
+        Vector2 id;
+        switch (s) {
+          case N_TOP:
+            id = top_side[i]; break;
+          case N_BOTTOM:
+            id = bottom_side[i]; break;
+          case N_LEFT:
+            id = left_side[i]; break;
+          case N_RIGHT:
+            id = right_side[i]; break;
+        }
+        int x = (int)id.x,
+            y = (int)id.y;
+
+        Vector3 old_v = grid->vert[x][y];
+        float left_h, right_h;
+        if (s > 1) { // Left/Right side
+          left_h = grid->vert[x][y-1].y,
+          right_h = grid->vert[x][y+1].y;
+        } else { // Top/Bottom side
+          left_h = grid->vert[x-1][y].y,
+          right_h = grid->vert[x+1][y].y;
+        }
+
+        float avg_h = (left_h + right_h) / 2;
+
+        grid->vert[x][y] = (Vector3){old_v.x, avg_h, old_v.z};
+
+      }
     }
   }
-  if (neigh_lods[N_BOTTOM] != -1 && neigh_lods[N_BOTTOM] < curr_lod) {
-    for (int i = 0; i < grid->size.x; i++) {
-      Vector2 id = bottom_side[i];
-      Vector3 old_v = grid->vert[(int)id.x][(int)id.y];
-      grid->vert[(int)id.x][(int)id.y] = (Vector3){old_v.x, old_v.y + CHUNK_CUT_FALLOFF*5, old_v.z};
-    }
-  }
-  // if (neigh_lods[N_LEFT] != -1 && neigh_lods[N_LEFT]   < curr_lod) {
-  //   for (int i = 0; i < grid->size.y; i++) {
-  //   }
-  // }
-  // if (neigh_lods[N_RIGHT] != -1 && neigh_lods[N_RIGHT]  < curr_lod) {
-  //   for (int i = 0; i < grid->size.y; i++) {
-  //   }
-  // }
 
 }
 
@@ -277,8 +290,8 @@ void tchunk_free(TChunk *chunk) {
 
 void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *light_shader, int lod_level) {
 
-  if (lod_level == chunk->lod_level && !IsModelValid(chunk->model)) return;
-  if (lod_level == chunk->lod_level) return;
+  // if (lod_level == chunk->lod_level && !IsModelValid(chunk->model)) return;
+  // if (lod_level == chunk->lod_level) return;
 
   tchunk_free(chunk);
   chunk->lod_level = lod_level;
@@ -496,7 +509,12 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
                                     cl_hash, cl_compare, NULL, NULL);
 
   int lod_levels[(int)terr->nchunk.x][(int)terr->nchunk.y];
-  memset(lod_levels, -1, sizeof(int) * (int)terr->nchunk.x * (int)terr->nchunk.y);
+  for (int x = 0; x < terr->nchunk.x; x++) {
+    for (int y = 0; y < terr->nchunk.y; y++) {
+      lod_levels[x][y] = terr->chunk[x][y].lod_level;
+    }
+  }
+  // memset(lod_levels, -1, sizeof(int) * (int)terr->nchunk.x * (int)terr->nchunk.y);
 
   for (int i = -VIEW_DIST_LOD2; i <= VIEW_DIST_LOD2; i++) {
     for (int j = -VIEW_DIST_LOD2; j <= VIEW_DIST_LOD2; j++) {
@@ -527,13 +545,8 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
     for (int y = 0; y < terr->nchunk.y; y++) {
       TChunk *c = get_chunk(terr, x, y);
 
-      // TChunk *ct = get_chunk(terr, x, y-1);
-      // TChunk *cb = get_chunk(terr, x, y+1);
-      // TChunk *cl = get_chunk(terr, x-1, y);
-      // TChunk *cr = get_chunk(terr, x+1, y);
-
-      int t_lod = lod_get(terr->nchunk, lod_levels, x, y+1);
-      int b_lod = lod_get(terr->nchunk, lod_levels, x, y-1);
+      int t_lod = lod_get(terr->nchunk, lod_levels, x, y-1);
+      int b_lod = lod_get(terr->nchunk, lod_levels, x, y+1);
       int l_lod = lod_get(terr->nchunk, lod_levels, x-1, y);
       int r_lod = lod_get(terr->nchunk, lod_levels, x+1, y);
 
@@ -554,6 +567,11 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
   }
 
   hashmap_free(map);
+  //
+  // TChunk c = terr->chunk[(int)new_chunk.x][(int)new_chunk.y];
+  // printf("           top: %i,          \n", c.neigh_lods[N_TOP]);
+  // printf("left: %i, curr: %i, right: %i\n", c.neigh_lods[N_RIGHT], c.lod_level, c.neigh_lods[N_LEFT]);
+  // printf("        bottom: %i,          \n", c.neigh_lods[N_BOTTOM]);
 }
 
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos) {
@@ -569,33 +587,6 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
     terr->last_chunk = curr_chunk;
   }
 
-  // for (int x = 0; x < terr->nchunk.x; x++) {
-  //   for (int y = 0; y < terr->nchunk.y; y++) {
-  //     TChunk *c = get_chunk(terr, x, y);
-  //     Vector2 ch_pos2 = {c->position.x, c->position.z};
-  //     Vector2 cm_pos2 = {inital_cam_pos.x, inital_cam_pos.z};
-  //     float dist = Vector2DistanceSqr(ch_pos2, cm_pos2);
-  //     int lod = -1;
-  //
-  //     if (dist > VIEW_DIST_LOD2){
-  //       lod = 2;
-  //       c->is_active = false;
-  //   }
-  //     else if (dist > VIEW_DIST_LOD1){
-  //       lod = 1;
-  //       c->is_active = false;
-  //     }
-  //     else {
-  //       lod = 0;
-  //       c->is_active = true;
-  //     }
-  //
-  //     if (c->is_active)
-  //       tchunk_generate(c, &terr->height_field, terr->light_shader, lod);
-  //
-  //     // c->is_active = true;
-  //   }
-  // }
 }
 
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {

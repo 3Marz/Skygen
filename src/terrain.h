@@ -4,9 +4,9 @@
 #include "map_gen.h"
 #include <raylib.h>
 
-#define LOD0_GEO 32 
-#define LOD0_GE1 16
-#define LOD0_GE2 8
+#define LOD0_GEO 128
+#define LOD0_GE1 64
+#define LOD0_GE2 32
 
 // #define VIEW_DIST_LOD0 30.0f*10000.0f
 // #define VIEW_DIST_LOD1 30.0f*10000.0f
