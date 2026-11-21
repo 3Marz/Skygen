@@ -170,6 +170,7 @@ void gen_ctx_draw(GenerationCtx *ctx) {
   switch (ctx->draw_mode) {
     case MODE_3D:
       BeginMode3D(ctx->camera);
+        DrawGrid(100, CHUNK_SPACE);
         // BeginShaderMode(ctx->lctx.shader);
           terrain_draw(&ctx->terrain);
         // EndShaderMode();

@@ -153,8 +153,13 @@ void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
 
 }
 
-void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_field) {
+void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_field, int curr_lod, int neigh_lods[4]) {
   if (!grid->vert) return;
+
+  Vector2 left_side[(int)grid->size.y]  ; int li = 0;
+  Vector2 right_side[(int)grid->size.y] ; int ri = 0;
+  Vector2 top_side[(int)grid->size.x]   ; int ti = 0;
+  Vector2 bottom_side[(int)grid->size.x]; int bi = 0;
 
   for (int x = 0; x < grid->size.x; x++) {
     for (int y = 0; y < grid->size.y; y++) {
@@ -170,13 +175,46 @@ void tgrid_generate(TGrid *grid, Vector2 offset, const THeightField *height_fiel
       //   h -= CHUNK_CUT_FALLOFF;
       // }
 
-      if (x <= 0 || x >= grid->size.x-1 || y <= 0 || y >= grid->size.y-1) {
-        h -= CHUNK_CUT_FALLOFF;
-      }
+      if (y <= 0)
+        top_side[ti++] = v2(x, y);    //TOP
 
-      grid->vert[x][y] = (Vector3){px, h, pz};
+      if (y >= grid->size.y-1)
+        bottom_side[bi++] = v2(x, y); //BOTTOM
+
+      if (x <= 0)
+        left_side[li++] = v2(x, y);   //LEFT
+
+      if (x >= grid->size.x-1)
+        right_side[ri++] = v2(x, y);  //RIGHT
+
+
+      grid->vert[x][y] = (Vector3){px, 0, pz};
     }
   }
+
+  if (neigh_lods[N_TOP] != -1 && neigh_lods[N_TOP] < curr_lod) {
+    // printv(&neigh_lods[N_TOP], T_INT);
+    for (int i = 0; i < grid->size.x; i++) {
+      Vector2 id = top_side[i];
+      Vector3 old_v = grid->vert[(int)id.x][(int)id.y];
+      grid->vert[(int)id.x][(int)id.y] = (Vector3){old_v.x, old_v.y + CHUNK_CUT_FALLOFF*5, old_v.z};
+    }
+  }
+  if (neigh_lods[N_BOTTOM] != -1 && neigh_lods[N_BOTTOM] < curr_lod) {
+    for (int i = 0; i < grid->size.x; i++) {
+      Vector2 id = bottom_side[i];
+      Vector3 old_v = grid->vert[(int)id.x][(int)id.y];
+      grid->vert[(int)id.x][(int)id.y] = (Vector3){old_v.x, old_v.y + CHUNK_CUT_FALLOFF*5, old_v.z};
+    }
+  }
+  // if (neigh_lods[N_LEFT] != -1 && neigh_lods[N_LEFT]   < curr_lod) {
+  //   for (int i = 0; i < grid->size.y; i++) {
+  //   }
+  // }
+  // if (neigh_lods[N_RIGHT] != -1 && neigh_lods[N_RIGHT]  < curr_lod) {
+  //   for (int i = 0; i < grid->size.y; i++) {
+  //   }
+  // }
 
 }
 
@@ -249,9 +287,13 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
   int lods[3] = {LOD0_GEO, LOD0_GE1, LOD0_GE2};
   float s = lods[lod_level];
   tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNK_SPACE/(s));
-  tgrid_generate(&chunk->grid, 
-      v2(chunk->position.x/(CHUNK_SPACE/(s)), chunk->position.z/(CHUNK_SPACE/(s))),
-      height_field);
+  tgrid_generate(
+    &chunk->grid, 
+    v2(chunk->position.x/(CHUNK_SPACE/(s)), chunk->position.z/(CHUNK_SPACE/(s))),
+    height_field,
+    chunk->lod_level,
+    chunk->neigh_lods
+  );
 
   int width = chunk->grid.size.x,
       height = chunk->grid.size.y;
@@ -442,6 +484,12 @@ bool vec_in_range(int range, Vector2 vec) {
   return false;
 }
 
+int lod_get(Vector2 size, int a[(int)size.x][(int)size.y], int x, int y) {
+  if (x < 0 || x >= size.x || y < 0 || y >= size.y )
+    return -1;
+  return a[x][y];
+}
+
 void update_chunks(Terrain *terr, Vector2 new_chunk) {
 
   struct hashmap *map = hashmap_new(sizeof(ChunkLoad), 0, 0, 0, 
@@ -477,7 +525,22 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
-      
+      TChunk *c = get_chunk(terr, x, y);
+
+      // TChunk *ct = get_chunk(terr, x, y-1);
+      // TChunk *cb = get_chunk(terr, x, y+1);
+      // TChunk *cl = get_chunk(terr, x-1, y);
+      // TChunk *cr = get_chunk(terr, x+1, y);
+
+      int t_lod = lod_get(terr->nchunk, lod_levels, x, y+1);
+      int b_lod = lod_get(terr->nchunk, lod_levels, x, y-1);
+      int l_lod = lod_get(terr->nchunk, lod_levels, x-1, y);
+      int r_lod = lod_get(terr->nchunk, lod_levels, x+1, y);
+
+      c->neigh_lods[N_TOP]    = t_lod;
+      c->neigh_lods[N_BOTTOM] = b_lod;
+      c->neigh_lods[N_LEFT]   = l_lod;
+      c->neigh_lods[N_RIGHT]  = r_lod;
     }
   }
 
