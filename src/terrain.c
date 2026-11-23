@@ -150,7 +150,7 @@ void tchunk_init(TChunk *chunk, Vector3 position) {
   chunk->model = (Model){ 0 };
   chunk->grid = (TGrid){ 0 };
   chunk->position = position;
-  chunk->is_active = true;
+  chunk->is_active = false;
   chunk->lod_level = -1;
 
   int nl[4] = {-1, -1, -1, -1};
@@ -172,7 +172,9 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
   chunk->lod_level = lod_level;
   if (!height_field || !height_field->data) return;
 
-  float s = LOD_GEOS[lod_level];
+  float geos[] = LOD_GEOS;
+  float s = geos[lod_level];
+
   tgrid_init(&chunk->grid, (Vector2){s+1, s+1}, CHUNK_SPACE/(s));
   tgrid_generate(
     &chunk->grid, 
@@ -327,6 +329,7 @@ void terrain_init(Terrain *terr, Shader *light_shader) {
 void terrain_clear(Terrain *terr) {
   if (!terr) return;
   height_field_free(&terr->height_field);
+  terr->last_chunk = v2(-1, -1);
   if (!terr->chunk) return;
 
   for (int x = 0; x < terr->nchunk.x; x++) {
@@ -384,7 +387,9 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
   int lod_levels[(int)terr->nchunk.x][(int)terr->nchunk.y];
   memset(lod_levels, -1, sizeof(int) * (int)terr->nchunk.x * (int)terr->nchunk.y);
 
-  int max_view_dist = VIEW_DISTS[nVIEW_DISTS-1];
+  int view_dists[] = VIEW_DISTS;
+  int max_view_dist = view_dists[arr_len(view_dists)-1];
+
   for (int i = -max_view_dist; i <= max_view_dist; i++) {
     for (int j = -max_view_dist; j <= max_view_dist; j++) {
       int x = new_chunk.x + i;
@@ -393,11 +398,11 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
       int lod_level = -1;
       Vector2 p = v2(i, j);
 
-      if (vec_in_range(VIEW_DIST_LOD0, p))
+      if (vec_in_range(view_dists[0], p))
         lod_level = 0;
-      else if (vec_in_range(VIEW_DIST_LOD1, p))
+      else if (vec_in_range(view_dists[1], p))
         lod_level = 1;
-      else if (vec_in_range(VIEW_DIST_LOD2, p)){
+      else if (vec_in_range(view_dists[2], p)){
         lod_level = 2;
       } else {
         lod_level = 3;
@@ -447,6 +452,8 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
 }
 
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos) {
+  terrain_clear(terr);
+
   (void)seed; /* the PNG height seed is no longer used; the map is the source */
 
   height_field_build(&terr->height_field, map);

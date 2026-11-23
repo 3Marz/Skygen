@@ -21,6 +21,8 @@ typedef struct {
   Camera camera;
   float camera_speed; /* free-camera movement speed, world units per second */
 
+  Camera2D camera2d;
+
   LightCtx lctx;
 
   int draw_mode;

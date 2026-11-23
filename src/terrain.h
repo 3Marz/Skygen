@@ -5,24 +5,12 @@
 #include "map_gen.h"
 #include <raylib.h>
 
-#define LOD_GEO0 64
-#define LOD_GEO1 32
-#define LOD_GEO2 16
-#define LOD_GEO3 8
-
-#define VIEW_DIST_LOD0 2
-#define VIEW_DIST_LOD1 4
-#define VIEW_DIST_LOD2 6
-#define VIEW_DIST_LOD3 10
+#define LOD_GEOS   { 64, 32, 16, 8 }
+#define VIEW_DISTS { 2, 4, 6, 10 }
 
 #define CHUNK_SPACE 128
 #define CHUNK_CUT_FALLOFF 10
 #define CHUNK_HEIGHTPOWER 450
-
-const int LOD_GEOS[4] = {LOD_GEO0, LOD_GEO1, LOD_GEO2, LOD_GEO3};
-const int nLOD_GEOS = sizeof(LOD_GEOS) / sizeof(LOD_GEOS[0]);
-const int VIEW_DISTS[4] = {VIEW_DIST_LOD0, VIEW_DIST_LOD1, VIEW_DIST_LOD2, VIEW_DIST_LOD3};
-const int nVIEW_DISTS = sizeof(VIEW_DISTS) / sizeof(VIEW_DISTS[0]);
 
 enum TCHUNK_NEIGHBOR_LOD {
   N_TOP,

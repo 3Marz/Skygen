@@ -7,6 +7,8 @@
 #define clamp(value, low, high) ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
 #define limit_h(value) clamp(value, 0, 100)
 
+#define arr_len(arr) sizeof(arr) / sizeof(arr[0])
+
 float rnd();
 int rand_range(int range[]);
 

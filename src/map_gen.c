@@ -1904,7 +1904,7 @@ Model map_graph_generate_model(MapGraph *map) {
 /* Screen overlay for the cached map: one textured quad, then vector lines and
  * dots. No per-pixel work here, which is what the old DrawPixel fill did. */
 void map_graph_draw(MapGraph *map, int with_lines) {
-  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 0.5f, WHITE);
+  DrawTextureEx(map_graph_generate_texture(map), (Vector2){ 0.0f, 0.0f }, 0.0f, 0.3f, WHITE);
 
   if (!with_lines) return;
 

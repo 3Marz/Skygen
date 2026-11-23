@@ -10,6 +10,7 @@
 #include <time.h>
 
 void regenerate_map(GenerationCtx *ctx) {
+
   if (ctx->regenerate == 1) {
     map_graph_generate(ctx->map, ctx->map_params);
   } else if (ctx->regenerate == 2) {
@@ -18,12 +19,6 @@ void regenerate_map(GenerationCtx *ctx) {
     terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
   } else if (ctx->regenerate == 4) {
     terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
-  }
-
-  /* The map heights changed: drop the cached terrain so it is rebuilt from the
-   * new map, even if we are in 2D right now. */
-  if (ctx->regenerate == 1 || ctx->regenerate == 2) {
-    terrain_clear(&ctx->terrain);
   }
 
   if (ctx->draw_mode == MODE_3D && ctx->regenerate != 3 && ctx->regenerate != 4) {
@@ -77,6 +72,9 @@ void gen_ctx_init(GenerationCtx *ctx) {
   };
 
   ctx->camera_speed = 200.0f;
+
+  ctx->camera2d = (Camera2D){ 0 };
+  ctx->camera2d.zoom = 1.0f;
 
   ctx->map_params = (MapParams){
     .map_size = v2(MAP_SIZE_X, MAP_SIZE_Y),
@@ -135,6 +133,41 @@ static void update_free_camera(GenerationCtx *ctx) {
   UpdateCameraPro(&ctx->camera, movement, rotation, 0.0f);
 }
 
+static void update_2d_camera(GenerationCtx *ctx) {
+
+  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    Vector2 delta = GetMouseDelta();
+    delta = Vector2Scale(delta, -1.0f / ctx->camera2d.zoom);
+    ctx->camera2d.target = Vector2Add(ctx->camera2d.target, delta);
+  }
+
+  Vector2 renderScale = {(float)GetRenderWidth() / GetScreenWidth(),
+                         (float)GetRenderHeight() / GetScreenHeight()};
+
+  // Zoom based on mouse wheel
+  float wheel = GetMouseWheelMove();
+  if (wheel != 0) {
+    // Get the world point that is under the mouse
+    Vector2 mouseWorldPos =
+        GetScreenToWorld2D(GetMousePosition(), ctx->camera2d);
+
+    // Set the offset to where the mouse is, mouse is scaled to viewport
+    // space, but offset is in unscaled pixels
+    ctx->camera2d.offset = Vector2Multiply(GetMousePosition(), renderScale);
+
+    // Set the target to match, so that the ctx->camera2d maps the world space
+    // point under the cursor to the screen space point under the cursor at any
+    // zoom
+    ctx->camera2d.target = mouseWorldPos;
+
+    // Zoom increment
+    // Uses log scaling to provide consistent zoom speed
+    float scale = 0.2f * wheel;
+    ctx->camera2d.zoom =
+        Clamp(expf(logf(ctx->camera2d.zoom) + scale), 0.125f, 64.0f);
+  }
+}
+
 void gen_ctx_update(GenerationCtx *ctx) {
 
   if (IsKeyPressed(KEY_H)) { ctx->regenerate = 2; }
@@ -159,7 +192,9 @@ void gen_ctx_update(GenerationCtx *ctx) {
     update_free_camera(ctx);
     light_ctx_update(&ctx->lctx, ctx->camera.position);
     terrain_update(&ctx->terrain, ctx->map, ctx->camera.position);
-  } 
+  } else if (ctx->draw_mode == MODE_2D) {
+    update_2d_camera(ctx);
+  }
 
 }
 
@@ -175,10 +210,13 @@ void gen_ctx_draw(GenerationCtx *ctx) {
           terrain_draw(&ctx->terrain);
         // EndShaderMode();
       EndMode3D();
-      DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 10, 20, RAYWHITE);
+      DrawFPS(10, 10);
+      DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 30, 20, RAYWHITE);
       break;
     case MODE_2D:
-      map_graph_draw(ctx->map, 0);
+      BeginMode2D(ctx->camera2d);
+        map_graph_draw(ctx->map, 0);
+      EndMode2D();
       break;
   }
 }
