@@ -15,7 +15,7 @@ else
 endif
 
 all:
-	gcc -o $(build_file) $(call safe_path,$(src_files)) -Wall -std=c99 -D_DEFAULT_SOURCE -Wno-missing-braces -Wunused-result -D_DEFAULT_SOURCE $(libs) -DPLATFORM_DESKTOP
+	gcc -o $(build_file) $(call safe_path,$(src_files)) -O3 -Wall -std=c99 -D_DEFAULT_SOURCE -Wno-missing-braces -Wunused-result -D_DEFAULT_SOURCE $(libs) -DPLATFORM_DESKTOP
 	$(run_path)
 
 build:

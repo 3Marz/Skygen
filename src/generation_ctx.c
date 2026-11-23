@@ -53,8 +53,8 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->screen_width = 1200;
   ctx->screen_height = 800;
 
-  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-  SetConfigFlags(FLAG_MSAA_4X_HINT);
+  SetTraceLogLevel(LOG_WARNING);
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
 

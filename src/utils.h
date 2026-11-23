@@ -3,11 +3,22 @@
 
 #include <stdio.h>
 #include <raylib.h>
+#include <time.h>
 
 #define clamp(value, low, high) ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
 #define limit_h(value) clamp(value, 0, 100)
 
 #define arr_len(arr) sizeof(arr) / sizeof(arr[0])
+
+#define MEASURE_TIME(func_call) do { \
+    struct timespec start, end; \
+    clock_gettime(CLOCK_MONOTONIC, &start); \
+    func_call; \
+    clock_gettime(CLOCK_MONOTONIC, &end); \
+    double elapsed = (end.tv_sec - start.tv_sec) * 1e3 + \
+                     (end.tv_nsec - start.tv_nsec) / 1e6; \
+    printf("'%s' took %.4f ms\n", #func_call, elapsed); \
+} while (0)
 
 float rnd();
 int rand_range(int range[]);

@@ -7,7 +7,7 @@
 #include <pthread.h>
 
 #define LOD_GEOS   { 64, 32, 16, 8 }
-#define VIEW_DISTS { 2, 4, 6, 10 }
+#define VIEW_DISTS { 1, 2, 3, 6 }
 
 #define CHUNK_SPACE 128
 #define CHUNK_CUT_FALLOFF 10
