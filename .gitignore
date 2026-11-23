@@ -1,6 +1,7 @@
 
 
 *.out
+.clangd
 
 lib/
 public/
