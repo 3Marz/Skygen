@@ -4,6 +4,7 @@
 #include "height_field.h"
 #include "map_gen.h"
 #include <raylib.h>
+#include <pthread.h>
 
 #define LOD_GEOS   { 64, 32, 16, 8 }
 #define VIEW_DISTS { 2, 4, 6, 10 }
@@ -49,6 +50,7 @@ typedef struct {
 
   TChunk **chunk;
   Vector2 nchunk;
+  pthread_t gen_thread;
 
   Vector2 last_chunk;
 

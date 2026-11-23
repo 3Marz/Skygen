@@ -1,0 +1,9 @@
+CompileFlags:
+  Add:
+    - "--target=x86_64-w64-mingw32"
+    - "--sysroot=C:/mingw64/x86_64-w64-mingw32"
+    - "-IC:/mingw64/x86_64-w64-mingw32/include"
+    - "-I."
+    - "-Iinclude"
+    - "-D_DEFAULT_SOURCE"
+    - "-DPLATFORM_DESKTOP"

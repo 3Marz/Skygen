@@ -5,6 +5,7 @@
 #include "map_gen.h"
 #include "utils.h"
 #include "../include/hashmap.h"
+#include <pthread.h>
 #include <raylib.h>
 #include <raymath.h>
 #include <math.h>

@@ -5,7 +5,7 @@ build_file = build.out
 ifdef OS
 	RM = del
 	safe_path = $(subst /,\,$1)
-	libs = -I. -Iinclude -Llib -lraylib -lgdi32 -lwinmm
+	libs = -I. -Iinclude -Llib -lraylib -lgdi32 -lwinmm -lpthread
 	run_path = .\$(build_file)
 else
 	RM = rm
@@ -17,6 +17,9 @@ endif
 all:
 	gcc -o $(build_file) $(call safe_path,$(src_files)) -Wall -std=c99 -D_DEFAULT_SOURCE -Wno-missing-braces -Wunused-result -D_DEFAULT_SOURCE $(libs) -DPLATFORM_DESKTOP
 	$(run_path)
+
+build:
+	gcc -o $(build_file) $(call safe_path,$(src_files)) -Wall -std=c99 -D_DEFAULT_SOURCE -Wno-missing-braces -Wunused-result -D_DEFAULT_SOURCE $(libs) -DPLATFORM_DESKTOP
 
 debug:
 	gcc -o $(build_file) $(call safe_path,$(src_files)) -g -fsanitize=address -Wall -std=c99 -D_DEFAULT_SOURCE -Wno-missing-braces -Wunused-result -D_DEFAULT_SOURCE $(libs) -DPLATFORM_DESKTOP
