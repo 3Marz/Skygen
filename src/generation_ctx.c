@@ -1,6 +1,5 @@
 
 #include "generation_ctx.h"
-#include "lights.h"
 #include "map_gen.h"
 #include "map_gen_height.h"
 #include "terrain.h"
@@ -85,10 +84,10 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->regenerate = 0;
   ctx->draw_mode = MODE_2D;
 
-  // Lights
-
-  ctx->lctx = (LightCtx){ 0 };
-  light_ctx_init(&ctx->lctx);
+  // // Lights
+  //
+  // ctx->lctx = (LightCtx){ 0 };
+  // light_ctx_init(&ctx->lctx);
 
   // Voronoi Map
   MapGraph *v_map = map_graph_init(ctx->map_params);
@@ -96,7 +95,7 @@ void gen_ctx_init(GenerationCtx *ctx) {
   ctx->map = v_map;
 
   ctx->terrain = (Terrain){ 0 };
-  terrain_init(&ctx->terrain, &ctx->lctx.shader);
+  terrain_init(&ctx->terrain);
 
   if (ctx->draw_mode == MODE_3D) 
     terrain_generate(&ctx->terrain, ctx->map, ctx->rand_seed, ctx->camera.position);
@@ -190,7 +189,7 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
   if (ctx->draw_mode == MODE_3D) {
     update_free_camera(ctx);
-    light_ctx_update(&ctx->lctx, ctx->camera.position);
+    // light_ctx_update(&ctx->lctx, ctx->camera.position);
     terrain_update(&ctx->terrain, ctx->map, ctx->camera.position);
   } else if (ctx->draw_mode == MODE_2D) {
     update_2d_camera(ctx);
@@ -206,9 +205,7 @@ void gen_ctx_draw(GenerationCtx *ctx) {
     case MODE_3D:
       BeginMode3D(ctx->camera);
         DrawGrid(100, CHUNK_SPACE);
-        // BeginShaderMode(ctx->lctx.shader);
-          terrain_draw(&ctx->terrain);
-        // EndShaderMode();
+        terrain_draw(&ctx->terrain);
       EndMode3D();
       DrawFPS(10, 10);
       DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 30, 20, RAYWHITE);
@@ -227,7 +224,6 @@ void gen_ctx_free(GenerationCtx *ctx) {
   ctx->map_params = (MapParams){ 0 };
   map_graph_free(ctx->map);
   terrain_free(&ctx->terrain);
-  light_ctx_free(&ctx->lctx);
 
 }
 

@@ -1,7 +1,6 @@
 #ifndef SKYGEN_GEN_CTX_H
 #define SKYGEN_GEN_CTX_H
 
-#include "lights.h"
 #include "map_gen.h"
 #include "terrain.h"
 
@@ -22,8 +21,6 @@ typedef struct {
   float camera_speed; /* free-camera movement speed, world units per second */
 
   Camera2D camera2d;
-
-  LightCtx lctx;
 
   int draw_mode;
   int regenerate;

@@ -5,7 +5,6 @@
 #include "map_gen.h"
 #include "utils.h"
 #include "../include/hashmap.h"
-#include <pthread.h>
 #include <raylib.h>
 #include <rlgl.h>
 #include <raymath.h>
@@ -15,6 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define RLIGHTS_IMPLEMENTATION
+#include "../include/rlights.h"
 
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
@@ -306,31 +308,66 @@ TChunk* get_chunk(Terrain *terr, int x, int y) {
 }
 
 Material LoadTerrainMaterial() {
-  Material material = { 0 };
+  Material mat = { 0 };
 
   const int MAX_MATERIAL_MAPS = 12;
 
-  material.maps = (MaterialMap *)RL_CALLOC(MAX_MATERIAL_MAPS, sizeof(MaterialMap));
+  mat.maps = (MaterialMap *)RL_CALLOC(MAX_MATERIAL_MAPS, sizeof(MaterialMap));
 
-  // Using rlgl default shader
-  material.shader.id = rlGetShaderIdDefault();
-  material.shader.locs = rlGetShaderLocsDefault();
+  // Using PBR Shader 
+  mat.shader = LoadShader("assets/shaders/pbr.vs", "assets/shaders/pbr.fs");
+  mat.shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(mat.shader, "viewPos");
+  mat.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(mat.shader, "albedoMap");
+  // WARNING: Metalness, roughness, and ambient occlusion are all packed into a
+  // MRA texture They are passed as to the SHADER_LOC_MAP_METALNESS location for
+  // convenience, mat.shader already takes care of it accordingly
+  mat.shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(mat.shader, "mraMap");
+  mat.shader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(mat.shader, "normalMap");
+  // WARNING: Similar to the MRA map, the emissive map packs different
+  // information into a single texture: it stores height and emission data It is
+  // binded to SHADER_LOC_MAP_EMISSION location an properly processed on mat.shader
+  mat.shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(mat.shader, "emissiveMap");
+  mat.shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(mat.shader, "albedoColor");
 
-  // Using rlgl default texture (1x1 pixel, UNCOMPRESSED_R8G8B8A8, 1 mipmap)
-  material.maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){ rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
-  //material.maps[MATERIAL_MAP_NORMAL].texture;         // NOTE: By default, not set
-  //material.maps[MATERIAL_MAP_SPECULAR].texture;       // NOTE: By default, not set
+  int lightCountLoc = GetShaderLocation(mat.shader, "numOfLights");
+  int maxLightCount = MAX_LIGHTS;
+  SetShaderValue(mat.shader, lightCountLoc, &maxLightCount, SHADER_UNIFORM_INT);
 
-  material.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;    // Diffuse color
-  material.maps[MATERIAL_MAP_SPECULAR].color = WHITE;   // Specular color
+  // Ambient light level (some basic lighting)
+  float ambientIntensity = 0.02f;
+  Color ambientColor = WHITE;
+  float ambientColorNormalized[4] = { ambientColor.r/255.0f, ambientColor.g/255.0f, ambientColor.b/255.0f, ambientColor.a/255.0f };
+  SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambientColor"), &ambientColorNormalized, SHADER_UNIFORM_VEC4);
+  SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambient"), &ambientIntensity, SHADER_UNIFORM_VEC4);
 
-  return material;
+  // // Using rlgl default texture (1x1 pixel, UNCOMPRESSED_R8G8B8A8, 1 mipmap)
+  // mat.maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){ rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+  // //mat.maps[MATERIAL_MAP_NORMAL].texture;         // NOTE: By default, not set
+  // //mat.maps[MATERIAL_MAP_SPECULAR].texture;       // NOTE: By default, not set
+  //
+  // mat.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;    // Diffuse color
+  // mat.maps[MATERIAL_MAP_SPECULAR].color = WHITE;   // Specular color
+
+  mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
+  mat.maps[MATERIAL_MAP_METALNESS].value = 1.0f;
+  mat.maps[MATERIAL_MAP_ROUGHNESS].value = 0.0f;
+  mat.maps[MATERIAL_MAP_OCCLUSION].value = 1.0f;
+  mat.maps[MATERIAL_MAP_EMISSION].color = (Color){255, 162, 0, 255};
+
+  // mat.maps default textures
+  mat.maps[MATERIAL_MAP_ALBEDO].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
+  mat.maps[MATERIAL_MAP_METALNESS].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Roughness.png");
+  mat.maps[MATERIAL_MAP_NORMAL].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_NormalGL.png");
+  mat.maps[MATERIAL_MAP_EMISSION].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Displacement.png");
+
+  return mat;
 }
 
-void terrain_init(Terrain *terr, Shader *light_shader) {
+void terrain_init(Terrain *terr) {
 
   terr->wire_draw = true;
   terr->material = LoadTerrainMaterial();
+  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(10, 10, 10), Vector3Zero(), WHITE, terr->material.shader);
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
@@ -492,6 +529,11 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
 }
 
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
+
+  // Update material shader
+  int cp[3] = {cam_pos.x, cam_pos.y, cam_pos.z};
+  SetShaderValue(terr->material.shader, terr->material.shader.locs[SHADER_LOC_VECTOR_VIEW], cp, SHADER_UNIFORM_VEC3);
+  UpdateLightValues(terr->material.shader, terr->dir_light);
 
   if (IsKeyPressed(KEY_COMMA)) {
     terr->wire_draw = terr->wire_draw ? false : true;

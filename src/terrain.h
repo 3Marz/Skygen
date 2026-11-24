@@ -3,6 +3,7 @@
 
 #include "height_field.h"
 #include "map_gen.h"
+#include "../include/rlights.h"
 #include <raylib.h>
 #include <pthread.h>
 
@@ -45,12 +46,7 @@ typedef struct {
 typedef struct {
 
   Material material;
-  // Shader *light_shader;
-  // Texture text_soil_albedo;
-  // Texture text_soil_occlusion;
-  // Texture text_soil_normal;
-  // Texture text_soil_disp;
-  // Texture text_soil_rough;
+  Light dir_light;
 
   THeightField height_field;
 
@@ -64,7 +60,7 @@ typedef struct {
 
 } Terrain;
 
-void terrain_init(Terrain *terr, Shader *light_shader);
+void terrain_init(Terrain *terr);
 void terrain_clear(Terrain *terr);
 void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam_pos);
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos);
