@@ -44,7 +44,13 @@ typedef struct {
 
 typedef struct {
 
-  Shader *light_shader;
+  Material material;
+  // Shader *light_shader;
+  // Texture text_soil_albedo;
+  // Texture text_soil_occlusion;
+  // Texture text_soil_normal;
+  // Texture text_soil_disp;
+  // Texture text_soil_rough;
 
   THeightField height_field;
 

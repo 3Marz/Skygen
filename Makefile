@@ -1,16 +1,17 @@
 
 src_files = src/main.c src/map_gen.c src/map_gen_height.c src/utils.c src/height_field.c src/terrain.c src/generation_ctx.c src/lights.c include/hashmap.c
-build_file = build.out
 
 ifdef OS
 	RM = del
 	safe_path = $(subst /,\,$1)
 	libs = -I. -Iinclude -Llib -lraylib -lgdi32 -lwinmm -lpthread
+	build_file = build.exe
 	run_path = .\$(build_file)
 else
 	RM = rm
 	safe_path = $1
 	libs = -I. -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -latomic
+	build_file = build.out
 	run_path = ./$(build_file)
 endif
 

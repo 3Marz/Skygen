@@ -7,6 +7,7 @@
 #include "../include/hashmap.h"
 #include <pthread.h>
 #include <raylib.h>
+#include <rlgl.h>
 #include <raymath.h>
 #include <math.h>
 #include <stddef.h>
@@ -164,14 +165,14 @@ void tchunk_free(TChunk *chunk) {
   tgrid_free(&chunk->grid);
 }
 
-void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *light_shader, int lod_level) {
+void tchunk_generate(TChunk *chunk, Terrain *terr, int lod_level) {
 
   // if (lod_level == chunk->lod_level && !IsModelValid(chunk->model)) return;
   // if (lod_level == chunk->lod_level) return;
 
   tchunk_free(chunk);
   chunk->lod_level = lod_level;
-  if (!height_field || !height_field->data) return;
+  if (!terr || !terr->height_field.data) return;
 
   float geos[] = LOD_GEOS;
   float s = geos[lod_level];
@@ -180,7 +181,7 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
   tgrid_generate(
     &chunk->grid, 
     v2(chunk->position.x/(CHUNK_SPACE/(s)), chunk->position.z/(CHUNK_SPACE/(s))),
-    height_field,
+    &terr->height_field,
     chunk->lod_level,
     chunk->neigh_lods
   );
@@ -212,7 +213,7 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
 
       Vector3 normal = normals
         ? height_field_normal(
-            height_field,
+            &terr->height_field,
             chunk->position.x + point.x,
             chunk->position.z + point.z,
             chunk->grid.height_power)
@@ -294,7 +295,6 @@ void tchunk_generate(TChunk *chunk, const THeightField *height_field, Shader *li
   UploadMesh(&tm, false);
 
   chunk->model = LoadModelFromMesh(tm);
-  chunk->model.materials[0].shader = *light_shader;
   chunk->is_active = true;
 }
 
@@ -305,10 +305,32 @@ TChunk* get_chunk(Terrain *terr, int x, int y) {
   return NULL;
 }
 
+Material LoadTerrainMaterial() {
+  Material material = { 0 };
+
+  const int MAX_MATERIAL_MAPS = 12;
+
+  material.maps = (MaterialMap *)RL_CALLOC(MAX_MATERIAL_MAPS, sizeof(MaterialMap));
+
+  // Using rlgl default shader
+  material.shader.id = rlGetShaderIdDefault();
+  material.shader.locs = rlGetShaderLocsDefault();
+
+  // Using rlgl default texture (1x1 pixel, UNCOMPRESSED_R8G8B8A8, 1 mipmap)
+  material.maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){ rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+  //material.maps[MATERIAL_MAP_NORMAL].texture;         // NOTE: By default, not set
+  //material.maps[MATERIAL_MAP_SPECULAR].texture;       // NOTE: By default, not set
+
+  material.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;    // Diffuse color
+  material.maps[MATERIAL_MAP_SPECULAR].color = WHITE;   // Specular color
+
+  return material;
+}
+
 void terrain_init(Terrain *terr, Shader *light_shader) {
 
   terr->wire_draw = true;
-  terr->light_shader = light_shader;
+  terr->material = LoadTerrainMaterial();
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
@@ -441,7 +463,7 @@ void update_chunks(Terrain *terr, Vector2 new_chunk) {
     const ChunkLoad *cl = item;
     TChunk *c = get_chunk(terr, cl->id.x, cl->id.y);
     if (c == NULL) continue;
-    tchunk_generate(c, &terr->height_field, terr->light_shader, cl->lod_level);
+    tchunk_generate(c, terr, cl->lod_level);
   }
 
   hashmap_free(map);
@@ -495,9 +517,9 @@ void terrain_draw(Terrain *terr) {
       TChunk *c = get_chunk(terr, x, y);
       if (c->is_active && IsModelValid(c->model)) {
         if (terr->wire_draw) {
-          DrawModelWires(c->model, c->position, 1.0f, (Color){61, 245, 73, 225});
+          DrawModelWires(c->model, c->position, 1.0f, WHITE);
         } else {
-          DrawModel(c->model, c->position, 1.0f, (Color){61, 245, 73, 225});
+          DrawMesh(c->model.meshes[0], terr->material, MatrixTranslate(c->position.x, c->position.y, c->position.z));
         }
       }
     }
@@ -518,6 +540,7 @@ void terrain_free(Terrain *terr) {
   free(terr->chunk); terr->chunk = NULL;
 
   height_field_free(&terr->height_field);
+  UnloadMaterial(terr->material);
 
 }
 

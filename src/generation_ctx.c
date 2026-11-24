@@ -200,7 +200,7 @@ void gen_ctx_update(GenerationCtx *ctx) {
 
 void gen_ctx_draw(GenerationCtx *ctx) {
 
-  ClearBackground(BLACK);
+  ClearBackground(SKYBLUE);
     
   switch (ctx->draw_mode) {
     case MODE_3D:
