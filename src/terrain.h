@@ -56,6 +56,12 @@ typedef struct {
   MaterialLoc locs;
   Light dir_light;
 
+  //Ocean
+  float time_passed;
+  Model ocean_model;
+  Shader ocean_shader;
+  Texture ocean_noise;
+
   THeightField height_field;
 
   TChunk **chunk;

@@ -342,9 +342,9 @@ Material LoadTerrainMaterial(MaterialLoc *locs) {
   locs->rock_tint_loc = GetShaderLocation(mat.shader, "rockTint");
 
   // Texture2D grass = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
-  // Texture2D rock = LoadTexture("assets/textures/soil.png");
+  Texture2D rock = LoadTexture("assets/textures/Ground1/Ground099_1K-PNG_Color.png");
   Texture2D grass = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){68, 186, 0, 255}));
-  Texture2D rock = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){111, 56, 2, 255}));
+  // Texture2D rock = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){111, 56, 2, 255}));
 
   GenTextureMipmaps(&grass);
   GenTextureMipmaps(&rock);
@@ -364,10 +364,6 @@ Material LoadTerrainMaterial(MaterialLoc *locs) {
 
 void terrain_init(Terrain *terr) {
 
-  terr->wire_draw = true;
-  terr->locs = (MaterialLoc){ 0 };
-  terr->material = LoadTerrainMaterial(&terr->locs);
-  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 1.2f, terr->material.shader);
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
@@ -383,6 +379,35 @@ void terrain_init(Terrain *terr) {
       tchunk_init(&terr->chunk[x][y], (Vector3){x*CHUNK_SPACE, 0, y*CHUNK_SPACE});
     }
   }
+
+  terr->wire_draw = false;
+  terr->locs = (MaterialLoc){ 0 };
+  terr->material = LoadTerrainMaterial(&terr->locs);
+  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 1.2f, terr->material.shader);
+
+
+
+  Image noise = GenImagePerlinNoise(512, 512, 0, 0, 4.0f);
+  terr->ocean_noise = LoadTextureFromImage(noise);
+  UnloadImage(noise);
+  SetTextureWrap(terr->ocean_noise, TEXTURE_WRAP_REPEAT);
+  SetTextureFilter(terr->ocean_noise, TEXTURE_FILTER_BILINEAR);
+
+  float sx = terr->nchunk.x * CHUNK_SPACE;
+  float sy = terr->nchunk.y * CHUNK_SPACE;
+  Mesh pl = GenMeshPlane(128.0f, 128.0f, 128, 128);
+  terr->ocean_model = LoadModelFromMesh(pl);
+
+  terr->ocean_shader = LoadShader("assets/shaders/ocean.vs", "assets/shaders/ocean.fs");
+  terr->ocean_model.materials[0].shader = terr->ocean_shader;
+  terr->ocean_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = terr->ocean_noise;
+
+  Vector3 light_dir = Vector3Normalize(Vector3Subtract(terr->dir_light.target, terr->dir_light.position));
+  float wave_height = 2.5f;
+  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uSunDir"), &light_dir, SHADER_UNIFORM_VEC3);
+  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uWaveHeight"), &wave_height, SHADER_UNIFORM_FLOAT);
+
+  terr->time_passed = 0.0f;
 
 }
 
@@ -530,10 +555,16 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
 
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
-  // Update material shader
+  // Update terrain material shader
   int cp[3] = {cam_pos.x, cam_pos.y, cam_pos.z};
   SetShaderValue(terr->material.shader, terr->material.shader.locs[SHADER_LOC_VECTOR_VIEW], cp, SHADER_UNIFORM_VEC3);
   UpdateLightValues(terr->material.shader, terr->dir_light);
+
+  // Update ocean shader
+  terr->time_passed = GetTime();
+  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uTime"), &terr->time_passed, SHADER_UNIFORM_FLOAT);
+  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uViewPos"), &cam_pos, SHADER_UNIFORM_VEC3);
+  
 
   if (IsKeyPressed(KEY_COMMA)) {
     terr->wire_draw = terr->wire_draw ? false : true;
@@ -551,6 +582,15 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
 }
 
+void DrawOcean(Terrain *terr) {
+  // BeginShaderMode(terr->ocean_shader);
+    if (terr->wire_draw)
+      DrawModelWires(terr->ocean_model, Vector3One(), 10.0f, WHITE);
+    else
+      DrawModel(terr->ocean_model, Vector3One(), 10.0f, WHITE);
+  // EndShaderMode();
+}
+
 void terrain_draw(Terrain *terr) {
 
   Shader shader = terr->material.shader;
@@ -565,6 +605,8 @@ void terrain_draw(Terrain *terr) {
   SetShaderValue(shader, terr->locs.slope_range_loc, &slope_range, SHADER_UNIFORM_VEC2);
   SetShaderValue(shader, terr->locs.grass_tint_loc, &grass_tint, SHADER_UNIFORM_VEC4);
   SetShaderValue(shader, terr->locs.rock_tint_loc, &rock_tint, SHADER_UNIFORM_VEC4);
+  
+  DrawOcean(terr);
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
@@ -586,6 +628,10 @@ void terrain_free(Terrain *terr) {
 
   UnloadMaterial(terr->material);
   terr->material.maps = NULL;
+
+  UnloadShader(terr->ocean_shader);
+  UnloadModel(terr->ocean_model);
+  UnloadTexture(terr->ocean_noise);
 
   for (int i = 0; i < terr->nchunk.x; i++) {
     for (int j = 0; j < terr->nchunk.y; j++) {
