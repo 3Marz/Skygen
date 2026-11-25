@@ -44,8 +44,17 @@ typedef struct {
 } TChunk;
 
 typedef struct {
+  int metallic_value_loc;
+  int roughness_value_loc;
+  int emissive_intensity_loc;
+  int emissive_color_loc;
+  int texture_tiling_loc;
+} MaterialLoc;
+
+typedef struct {
 
   Material material;
+  MaterialLoc locs;
   Light dir_light;
 
   THeightField height_field;

@@ -117,15 +117,38 @@ vec3 ComputePBR()
 
     for (int i = 0; i < numOfLights; i++)
     {
-        vec3 L = normalize(lights[i].position - fragPosition);      // Compute light vector
+        if (lights[i].enabled == 0) continue;
+
+        vec3 L;
+        float attenuation;
+
+        if (lights[i].type == LIGHT_DIRECTIONAL)
+        {
+            // A directional light only has a direction, so it must not use
+            // distance attenuation. position/target define that direction.
+            L = normalize(lights[i].position - lights[i].target);
+            attenuation = 1.0;
+        }
+        else if (lights[i].type == LIGHT_POINT)
+        {
+            vec3 toLight = lights[i].position - fragPosition;
+            float dist = length(toLight);
+            L = toLight / max(dist, 0.0001);
+            attenuation = 1.0 / max(dist*dist*0.23, 0.0001);
+        }
+        else
+        {
+            continue;
+        }
+
+        float nDotL = dot(N, L);
+        if (nDotL <= 0.0) continue;
+
         vec3 H = normalize(V + L);                                  // Compute halfway bisecting vector
-        float dist = length(lights[i].position - fragPosition);     // Compute distance to light
-        float attenuation = 1.0/(dist*dist*0.23);                   // Compute attenuation
         vec3 radiance = lights[i].color.rgb*lights[i].intensity*attenuation; // Compute input radiance, light energy coming in
 
         // Cook-Torrance BRDF distribution function
         float nDotV = max(dot(N,V), 0.0000001);
-        float nDotL = max(dot(N,L), 0.0000001);
         float hDotV = max(dot(H,V), 0.0);
         float nDotH = max(dot(N,H), 0.0);
         float D = GgxDistribution(nDotH, roughness);    // Larger the more micro-facets aligned to H
@@ -140,7 +163,7 @@ vec3 ComputePBR()
 
         // Mult kD by the inverse of metallnes, only non-metals should have diffuse light
         kD *= 1.0 - metallic;
-        lightAccum += ((kD*albedo.rgb/PI + spec)*radiance*nDotL)*lights[i].enabled; // Angle of light has impact on result
+        lightAccum += ((kD*albedo.rgb/PI + spec)*radiance*nDotL); // Angle of light has impact on result
     }
 
     vec3 ambientFinal = (ambientColor + albedo)*ambient*0.5;

@@ -18,7 +18,7 @@ void light_ctx_init(LightCtx *ctx) {
   SetShaderValue(ctx->shader, ambientLoc, (float[4]){ ambientColor.r/255.0f, ambientColor.g/255.0f, ambientColor.b/255.0f, ambientColor.a/255.0f }, SHADER_UNIFORM_VEC4);
 
   float p = 100.0f;
-  ctx->lights[0] = CreateLight(LIGHT_DIRECTIONAL, v3(p,p,p), v3(0.0f,0.0f,0.0f), WHITE, ctx->shader);
+  ctx->lights[0] = CreateLight(LIGHT_DIRECTIONAL, v3(p,p,p), v3(0.0f,0.0f,0.0f), WHITE, 1.0f, ctx->shader);
 
 }
 

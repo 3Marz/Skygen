@@ -11,8 +11,6 @@ in vec4 vertexColor;
 uniform mat4 mvp;
 uniform mat4 matModel;
 uniform mat4 matNormal;
-uniform vec3 lightPos;
-uniform vec4 difColor;
 
 // Output vertex attributes (to fragment shader)
 out vec3 fragPosition;

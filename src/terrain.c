@@ -307,7 +307,7 @@ TChunk* get_chunk(Terrain *terr, int x, int y) {
   return NULL;
 }
 
-Material LoadTerrainMaterial() {
+Material LoadTerrainMaterial(MaterialLoc *locs) {
   Material mat = { 0 };
 
   const int MAX_MATERIAL_MAPS = 12;
@@ -340,6 +340,12 @@ Material LoadTerrainMaterial() {
   SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambientColor"), &ambientColorNormalized, SHADER_UNIFORM_VEC4);
   SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambient"), &ambientIntensity, SHADER_UNIFORM_VEC4);
 
+  locs->metallic_value_loc = GetShaderLocation(mat.shader, "metallicValue");
+  locs->roughness_value_loc = GetShaderLocation(mat.shader, "roughnessValue");
+  locs->emissive_intensity_loc = GetShaderLocation(mat.shader, "emissivePower");
+  locs->emissive_color_loc = GetShaderLocation(mat.shader, "emissiveColor");
+  locs->texture_tiling_loc = GetShaderLocation(mat.shader, "tiling");
+
   // // Using rlgl default texture (1x1 pixel, UNCOMPRESSED_R8G8B8A8, 1 mipmap)
   // mat.maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){ rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
   // //mat.maps[MATERIAL_MAP_NORMAL].texture;         // NOTE: By default, not set
@@ -349,10 +355,10 @@ Material LoadTerrainMaterial() {
   // mat.maps[MATERIAL_MAP_SPECULAR].color = WHITE;   // Specular color
 
   mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
-  mat.maps[MATERIAL_MAP_METALNESS].value = 1.0f;
-  mat.maps[MATERIAL_MAP_ROUGHNESS].value = 0.0f;
+  mat.maps[MATERIAL_MAP_METALNESS].value = 0.8f;
+  mat.maps[MATERIAL_MAP_ROUGHNESS].value = 0.1f;
   mat.maps[MATERIAL_MAP_OCCLUSION].value = 1.0f;
-  mat.maps[MATERIAL_MAP_EMISSION].color = (Color){255, 162, 0, 255};
+  mat.maps[MATERIAL_MAP_EMISSION].color = WHITE;
 
   // mat.maps default textures
   mat.maps[MATERIAL_MAP_ALBEDO].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
@@ -360,14 +366,22 @@ Material LoadTerrainMaterial() {
   mat.maps[MATERIAL_MAP_NORMAL].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_NormalGL.png");
   mat.maps[MATERIAL_MAP_EMISSION].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Displacement.png");
 
+  
+  int usage = 1;
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexAlbedo"), &usage, SHADER_UNIFORM_INT);
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexNormal"), &usage, SHADER_UNIFORM_INT);
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexMRA"), &usage, SHADER_UNIFORM_INT);
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexEmissive"), &usage, SHADER_UNIFORM_INT);
+
   return mat;
 }
 
 void terrain_init(Terrain *terr) {
 
   terr->wire_draw = true;
-  terr->material = LoadTerrainMaterial();
-  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(10, 10, 10), Vector3Zero(), WHITE, terr->material.shader);
+  terr->locs = (MaterialLoc){ 0 };
+  terr->material = LoadTerrainMaterial(&terr->locs);
+  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 5.0f, terr->material.shader);
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
@@ -553,6 +567,20 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
 void terrain_draw(Terrain *terr) {
 
+  Shader shader = terr->material.shader;
+  Vector2 ground_texture_tiling = v2(0.5f, 0.5f);
+
+  // Set old car model texture tiling, emissive color and emissive intensity parameters on shader
+  SetShaderValue(shader, terr->locs.texture_tiling_loc, &ground_texture_tiling, SHADER_UNIFORM_VEC2);
+  Vector4 emissive_color = ColorNormalize(terr->material.maps[MATERIAL_MAP_EMISSION].color);
+  SetShaderValue(shader, terr->locs.emissive_color_loc, &emissive_color, SHADER_UNIFORM_VEC4);
+  float emissive_intensity = 0.01f;
+  SetShaderValue(shader, terr->locs.emissive_intensity_loc, &emissive_intensity, SHADER_UNIFORM_FLOAT);
+
+  // Set old car metallic and roughness values
+  SetShaderValue(shader, terr->locs.metallic_value_loc, &terr->material.maps[MATERIAL_MAP_METALNESS].value, SHADER_UNIFORM_FLOAT);
+  SetShaderValue(shader, terr->locs.roughness_value_loc, &terr->material.maps[MATERIAL_MAP_ROUGHNESS].value, SHADER_UNIFORM_FLOAT);
+
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
 
@@ -571,6 +599,9 @@ void terrain_draw(Terrain *terr) {
 
 void terrain_free(Terrain *terr) {
 
+  UnloadMaterial(terr->material);
+  terr->material.maps = NULL;
+
   for (int i = 0; i < terr->nchunk.x; i++) {
     for (int j = 0; j < terr->nchunk.y; j++) {
       tchunk_free(&terr->chunk[i][j]);
@@ -582,7 +613,6 @@ void terrain_free(Terrain *terr) {
   free(terr->chunk); terr->chunk = NULL;
 
   height_field_free(&terr->height_field);
-  UnloadMaterial(terr->material);
 
 }
 
