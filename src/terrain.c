@@ -314,64 +314,50 @@ Material LoadTerrainMaterial(MaterialLoc *locs) {
 
   mat.maps = (MaterialMap *)RL_CALLOC(MAX_MATERIAL_MAPS, sizeof(MaterialMap));
 
-  // Using PBR Shader 
-  mat.shader = LoadShader("assets/shaders/pbr.vs", "assets/shaders/pbr.fs");
+  mat.shader = LoadShader("assets/shaders/terrain_stylized.vs",
+                          "assets/shaders/terrain_stylized.fs");
   mat.shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(mat.shader, "viewPos");
-  mat.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(mat.shader, "albedoMap");
-  // WARNING: Metalness, roughness, and ambient occlusion are all packed into a
-  // MRA texture They are passed as to the SHADER_LOC_MAP_METALNESS location for
-  // convenience, mat.shader already takes care of it accordingly
-  mat.shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(mat.shader, "mraMap");
-  mat.shader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(mat.shader, "normalMap");
-  // WARNING: Similar to the MRA map, the emissive map packs different
-  // information into a single texture: it stores height and emission data It is
-  // binded to SHADER_LOC_MAP_EMISSION location an properly processed on mat.shader
-  mat.shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(mat.shader, "emissiveMap");
-  mat.shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(mat.shader, "albedoColor");
+
+  // The shader exposes named terrain layers, but they are still bound through
+  // the standard material map slots so DrawMesh uploads them automatically.
+  // ALBEDO is grass, NORMAL is rock/soil. Add another layer by giving it
+  // another unused material map slot and matching shader location.
+  mat.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(mat.shader, "grassMap");
+  mat.shader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(mat.shader, "rockMap");
 
   int lightCountLoc = GetShaderLocation(mat.shader, "numOfLights");
   int maxLightCount = MAX_LIGHTS;
   SetShaderValue(mat.shader, lightCountLoc, &maxLightCount, SHADER_UNIFORM_INT);
 
-  // Ambient light level (some basic lighting)
-  float ambientIntensity = 0.02f;
-  Color ambientColor = WHITE;
-  float ambientColorNormalized[4] = { ambientColor.r/255.0f, ambientColor.g/255.0f, ambientColor.b/255.0f, ambientColor.a/255.0f };
-  SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambientColor"), &ambientColorNormalized, SHADER_UNIFORM_VEC4);
-  SetShaderValue( mat.shader, GetShaderLocation(mat.shader, "ambient"), &ambientIntensity, SHADER_UNIFORM_VEC4);
+  // Ambient light level
+  float ambientIntensity = 0.25f;
+  float ambientColor[3] = { 1.0f, 1.0f, 1.0f };
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "ambientColor"), ambientColor, SHADER_UNIFORM_VEC3);
+  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "ambientIntensity"), &ambientIntensity, SHADER_UNIFORM_FLOAT);
 
-  locs->metallic_value_loc = GetShaderLocation(mat.shader, "metallicValue");
-  locs->roughness_value_loc = GetShaderLocation(mat.shader, "roughnessValue");
-  locs->emissive_intensity_loc = GetShaderLocation(mat.shader, "emissivePower");
-  locs->emissive_color_loc = GetShaderLocation(mat.shader, "emissiveColor");
-  locs->texture_tiling_loc = GetShaderLocation(mat.shader, "tiling");
+  // Artist-tweakable terrain blend parameters. terrain_draw() sends the values.
+  locs->uv_scale_loc = GetShaderLocation(mat.shader, "uvScale");
+  locs->slope_range_loc = GetShaderLocation(mat.shader, "slopeRange");
+  locs->grass_tint_loc = GetShaderLocation(mat.shader, "grassTint");
+  locs->rock_tint_loc = GetShaderLocation(mat.shader, "rockTint");
 
-  // // Using rlgl default texture (1x1 pixel, UNCOMPRESSED_R8G8B8A8, 1 mipmap)
-  // mat.maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){ rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
-  // //mat.maps[MATERIAL_MAP_NORMAL].texture;         // NOTE: By default, not set
-  // //mat.maps[MATERIAL_MAP_SPECULAR].texture;       // NOTE: By default, not set
-  //
-  // mat.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;    // Diffuse color
-  // mat.maps[MATERIAL_MAP_SPECULAR].color = WHITE;   // Specular color
+  // Texture2D grass = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
+  // Texture2D rock = LoadTexture("assets/textures/soil.png");
+  Texture2D grass = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){68, 186, 0, 255}));
+  Texture2D rock = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){111, 56, 2, 255}));
 
+  GenTextureMipmaps(&grass);
+  GenTextureMipmaps(&rock);
+
+  SetTextureWrap(grass, TEXTURE_WRAP_REPEAT);
+  SetTextureWrap(rock, TEXTURE_WRAP_REPEAT);
+  SetTextureFilter(grass, TEXTURE_FILTER_ANISOTROPIC_4X);
+  SetTextureFilter(rock, TEXTURE_FILTER_ANISOTROPIC_4X);
+
+  mat.maps[MATERIAL_MAP_ALBEDO].texture = grass;
   mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
-  mat.maps[MATERIAL_MAP_METALNESS].value = 0.8f;
-  mat.maps[MATERIAL_MAP_ROUGHNESS].value = 0.1f;
-  mat.maps[MATERIAL_MAP_OCCLUSION].value = 1.0f;
-  mat.maps[MATERIAL_MAP_EMISSION].color = WHITE;
-
-  // mat.maps default textures
-  mat.maps[MATERIAL_MAP_ALBEDO].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
-  mat.maps[MATERIAL_MAP_METALNESS].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Roughness.png");
-  mat.maps[MATERIAL_MAP_NORMAL].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_NormalGL.png");
-  mat.maps[MATERIAL_MAP_EMISSION].texture = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Displacement.png");
-
-  
-  int usage = 1;
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexAlbedo"), &usage, SHADER_UNIFORM_INT);
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexNormal"), &usage, SHADER_UNIFORM_INT);
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexMRA"), &usage, SHADER_UNIFORM_INT);
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "useTexEmissive"), &usage, SHADER_UNIFORM_INT);
+  mat.maps[MATERIAL_MAP_NORMAL].texture = rock;
+  mat.maps[MATERIAL_MAP_NORMAL].color = WHITE;
 
   return mat;
 }
@@ -381,7 +367,7 @@ void terrain_init(Terrain *terr) {
   terr->wire_draw = true;
   terr->locs = (MaterialLoc){ 0 };
   terr->material = LoadTerrainMaterial(&terr->locs);
-  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 5.0f, terr->material.shader);
+  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 1.2f, terr->material.shader);
   terr->nchunk = (Vector2){
     (float)MAP_SIZE_X/CHUNK_SPACE, (float)MAP_SIZE_Y/CHUNK_SPACE
   };
@@ -568,18 +554,17 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 void terrain_draw(Terrain *terr) {
 
   Shader shader = terr->material.shader;
-  Vector2 ground_texture_tiling = v2(0.5f, 0.5f);
 
-  // Set old car model texture tiling, emissive color and emissive intensity parameters on shader
-  SetShaderValue(shader, terr->locs.texture_tiling_loc, &ground_texture_tiling, SHADER_UNIFORM_VEC2);
-  Vector4 emissive_color = ColorNormalize(terr->material.maps[MATERIAL_MAP_EMISSION].color);
-  SetShaderValue(shader, terr->locs.emissive_color_loc, &emissive_color, SHADER_UNIFORM_VEC4);
-  float emissive_intensity = 0.01f;
-  SetShaderValue(shader, terr->locs.emissive_intensity_loc, &emissive_intensity, SHADER_UNIFORM_FLOAT);
+  // Stylized terrain blend parameters.
+  Vector2 uv_scale = v2(0.02f, 0.02f);
+  Vector2 slope_range = v2(0.55f, 0.80f);
+  Vector4 grass_tint = { 1.0f, 1.0f, 1.0f, 1.0f };
+  Vector4 rock_tint = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-  // Set old car metallic and roughness values
-  SetShaderValue(shader, terr->locs.metallic_value_loc, &terr->material.maps[MATERIAL_MAP_METALNESS].value, SHADER_UNIFORM_FLOAT);
-  SetShaderValue(shader, terr->locs.roughness_value_loc, &terr->material.maps[MATERIAL_MAP_ROUGHNESS].value, SHADER_UNIFORM_FLOAT);
+  SetShaderValue(shader, terr->locs.uv_scale_loc, &uv_scale, SHADER_UNIFORM_VEC2);
+  SetShaderValue(shader, terr->locs.slope_range_loc, &slope_range, SHADER_UNIFORM_VEC2);
+  SetShaderValue(shader, terr->locs.grass_tint_loc, &grass_tint, SHADER_UNIFORM_VEC4);
+  SetShaderValue(shader, terr->locs.rock_tint_loc, &rock_tint, SHADER_UNIFORM_VEC4);
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
