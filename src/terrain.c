@@ -4,9 +4,9 @@
 #include "height_field.h"
 #include "map_gen.h"
 #include "utils.h"
+#include "../include/r3d/r3d_texture.h"
 #include "../include/hashmap.h"
 #include <raylib.h>
-#include <rlgl.h>
 #include <raymath.h>
 #include <math.h>
 #include <stddef.h>
@@ -14,9 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define RLIGHTS_IMPLEMENTATION
-#include "../include/rlights.h"
 
 
 void tgrid_init(TGrid *grid, Vector2 size, float spacing) {
@@ -130,28 +127,8 @@ void tgrid_free(TGrid *grid) {
   grid->height_power = 0.0f;
 }
 
-void tmesh_set_vert(Mesh *tm, int i, Vector3 p) {
-  tm->vertices[i*3    ] = p.x;
-  tm->vertices[i*3 + 1] = p.y;
-  tm->vertices[i*3 + 2] = p.z;
-}
-void tmesh_add_normal(Mesh *tm, int i, Vector3 p) {
-  tm->normals[i*3    ] += p.x;
-  tm->normals[i*3 + 1] += p.y;
-  tm->normals[i*3 + 2] += p.z;
-}
-void tmesh_set_normal(Mesh *tm, int i, Vector3 p) {
-  tm->normals[i*3    ] = p.x;
-  tm->normals[i*3 + 1] = p.y;
-  tm->normals[i*3 + 2] = p.z;
-}
-void tmesh_set_texcord(Mesh *tm, int i, float x, float y) {
-  tm->texcoords[i*2    ] = x;
-  tm->texcoords[i*2 + 1] = y;
-}
-
 void tchunk_init(TChunk *chunk, Vector3 position) {
-  chunk->model = (Model){ 0 };
+  chunk->mesh = (R3D_Mesh){ 0 };
   chunk->grid = (TGrid){ 0 };
   chunk->position = position;
   chunk->is_active = false;
@@ -162,15 +139,13 @@ void tchunk_init(TChunk *chunk, Vector3 position) {
 }
 
 void tchunk_free(TChunk *chunk) {
-  if (IsModelValid(chunk->model))
-    UnloadModel(chunk->model);
+  if (R3D_IsMeshValid(chunk->mesh))
+    R3D_UnloadMesh(chunk->mesh);
+  chunk->mesh = (R3D_Mesh){ 0 };
   tgrid_free(&chunk->grid);
 }
 
 void tchunk_generate(TChunk *chunk, Terrain *terr, int lod_level) {
-
-  // if (lod_level == chunk->lod_level && !IsModelValid(chunk->model)) return;
-  // if (lod_level == chunk->lod_level) return;
 
   tchunk_free(chunk);
   chunk->lod_level = lod_level;
@@ -190,86 +165,79 @@ void tchunk_generate(TChunk *chunk, Terrain *terr, int lod_level) {
 
   int width = chunk->grid.size.x,
       height = chunk->grid.size.y;
-
-  Mesh tm = {0};
-  tm.triangleCount = 2 * ((width-1) * (height-1));
-  if (tm.triangleCount <= 0)
+  int vertex_count = width * height;
+  int index_count = (width - 1) * (height - 1) * 6;
+  if (vertex_count <= 0 || index_count <= 0)
     return;
-  // tm.vertexCount = tm.triangleCount * 3;
-  tm.vertexCount = width * height;
-
-  tm.vertices = (float *)MemAlloc(tm.vertexCount * 3 * sizeof(float));
-  tm.normals = (float *)MemAlloc(tm.vertexCount * 3 * sizeof(float));
-  tm.texcoords = (float *)MemAlloc(tm.vertexCount * 2 * sizeof(float));
-  tm.indices = (unsigned short *)MemAlloc( ((width-1) * (height-1) * 6) * sizeof(unsigned short));
 
   /* Normals come from the shared height field, so a vertex on a chunk border
    * gets the same normal from both chunks no matter which LOD built it. */
-  Vector3 *normals = (Vector3 *)malloc((size_t)width * height * sizeof(Vector3));
+  Vector3 *normals = (Vector3 *)malloc((size_t)vertex_count * sizeof(Vector3));
+  if (!normals)
+    return;
 
   for (int x = 0; x < width; x++) {
     for (int y = 0; y < height; y++) {
-
-      int i = x * height + y; 
+      int i = x * height + y;
       Vector3 point = chunk->grid.vert[x][y];
-
-      Vector3 normal = normals
-        ? height_field_normal(
-            &terr->height_field,
-            chunk->position.x + point.x,
-            chunk->position.z + point.z,
-            chunk->grid.height_power)
-        : (Vector3){ 0, 1, 0 };
-      if (normals) normals[i] = normal;
-
-      tmesh_set_vert(&tm, i, point);
-      tmesh_set_normal(&tm, i, normal);
-
-      tmesh_set_texcord(&tm, i, 
-        (float)x / (width - 1),
-        (float)y / (height - 1)
-      );
-
+      normals[i] = height_field_normal(
+          &terr->height_field,
+          chunk->position.x + point.x,
+          chunk->position.z + point.z,
+          chunk->grid.height_power);
     }
   }
 
   /* On a stitched side the finer chunk pulls its odd border vertices onto the
    * midpoint of the coarse edge. Do the same for their normals, so both sides
    * interpolate the exact same normal along the shared edge. */
-  if (normals) {
-    int sides[4] = { N_TOP, N_BOTTOM, N_LEFT, N_RIGHT };
-    for (int s = 0; s < 4; s++) {
-      const int SIDE = sides[s];
-      if (chunk->neigh_lods[SIDE] == -1 ||
-          chunk->neigh_lods[SIDE] <= lod_level)
-        continue;
+  int sides[4] = { N_TOP, N_BOTTOM, N_LEFT, N_RIGHT };
+  for (int s = 0; s < 4; s++) {
+    const int SIDE = sides[s];
+    if (chunk->neigh_lods[SIDE] == -1 ||
+        chunk->neigh_lods[SIDE] <= lod_level)
+      continue;
 
-      int itr_size = s > 1 ? height : width;
-      for (int i = 1; i < itr_size; i += 2) {
-        int x, y;
-        switch (s) {
-          case N_TOP:    x = i;                y = 0;            break;
-          case N_BOTTOM: x = i;                y = height - 1;   break;
-          case N_LEFT:   x = 0;                y = i;            break;
-          default:       x = width - 1;        y = i;            break;
-        }
-
-        Vector3 n0, n1;
-        if (s > 1) {
-          n0 = normals[x * height + (y - 1)];
-          n1 = normals[x * height + (y + 1)];
-        } else {
-          n0 = normals[(x - 1) * height + y];
-          n1 = normals[(x + 1) * height + y];
-        }
-
-        Vector3 avg = Vector3Normalize(Vector3Add(n0, n1));
-        normals[x * height + y] = avg;
-        tmesh_set_normal(&tm, x * height + y, avg);
+    int itr_size = s > 1 ? height : width;
+    for (int i = 1; i < itr_size; i += 2) {
+      int x, y;
+      switch (s) {
+        case N_TOP:    x = i;                y = 0;            break;
+        case N_BOTTOM: x = i;                y = height - 1;   break;
+        case N_LEFT:   x = 0;                y = i;            break;
+        default:       x = width - 1;        y = i;            break;
       }
-    }
 
+      Vector3 n0, n1;
+      if (s > 1) {
+        n0 = normals[x * height + (y - 1)];
+        n1 = normals[x * height + (y + 1)];
+      } else {
+        n0 = normals[(x - 1) * height + y];
+        n1 = normals[(x + 1) * height + y];
+      }
+
+      normals[x * height + y] = Vector3Normalize(Vector3Add(n0, n1));
+    }
+  }
+
+  R3D_MeshData data = R3D_LoadMeshData(vertex_count, index_count);
+  if (!data.vertices || !data.indices) {
     free(normals);
+    return;
+  }
+
+  data.vertexCount = vertex_count;
+  data.indexCount = index_count;
+
+  for (int x = 0; x < width; x++) {
+    for (int y = 0; y < height; y++) {
+      int i = x * height + y;
+      Vector3 point = chunk->grid.vert[x][y];
+      Vector2 uv = { (float)x / (width - 1), (float)y / (height - 1) };
+      data.vertices[i] = R3D_MakeVertex(
+          point, uv, normals[i], (Vector4){ 0.0f, 0.0f, 0.0f, 1.0f }, WHITE);
+    }
   }
 
   int vi = 0;
@@ -282,22 +250,25 @@ void tchunk_generate(TChunk *chunk, Terrain *terr, int lod_level) {
       int d = (x + 1) * height + (y + 1);
 
       // First triangle: A, B, C
-      tm.indices[vi++] = a;
-      tm.indices[vi++] = b;
-      tm.indices[vi++] = c;
+      data.indices[vi++] = a;
+      data.indices[vi++] = b;
+      data.indices[vi++] = c;
 
       // Second triangle: B, D, C
-      tm.indices[vi++] = b;
-      tm.indices[vi++] = d;
-      tm.indices[vi++] = c;
+      data.indices[vi++] = b;
+      data.indices[vi++] = d;
+      data.indices[vi++] = c;
 
     }
   }
 
-  UploadMesh(&tm, false);
+  R3D_GenMeshDataTangents(&data, R3D_PRIMITIVE_TRIANGLES);
 
-  chunk->model = LoadModelFromMesh(tm);
-  chunk->is_active = true;
+  chunk->mesh = R3D_LoadMesh(R3D_PRIMITIVE_TRIANGLES, data, NULL);
+  chunk->is_active = R3D_IsMeshValid(chunk->mesh);
+
+  R3D_UnloadMeshData(data);
+  free(normals);
 }
 
 TChunk* get_chunk(Terrain *terr, int x, int y) {
@@ -307,59 +278,37 @@ TChunk* get_chunk(Terrain *terr, int x, int y) {
   return NULL;
 }
 
-Material LoadTerrainMaterial(MaterialLoc *locs) {
-  Material mat = { 0 };
+static void terrain_material_init(Terrain *terr) {
+  terr->terrain_shader = R3D_LoadSurfaceShader("assets/shaders/terrain_surface.glsl");
 
-  const int MAX_MATERIAL_MAPS = 12;
+  terr->grass_texture = R3D_LoadTextureEx(
+      "assets/textures/Grass/Grass005_1K-PNG_Color.png",
+      TEXTURE_WRAP_REPEAT, TEXTURE_FILTER_ANISOTROPIC_4X, true);
 
-  mat.maps = (MaterialMap *)RL_CALLOC(MAX_MATERIAL_MAPS, sizeof(MaterialMap));
+  terr->rock_texture = R3D_LoadTextureEx(
+      "assets/textures/Ground1/Ground099_1K-PNG_Color.png",
+      TEXTURE_WRAP_REPEAT, TEXTURE_FILTER_ANISOTROPIC_4X, true);
 
-  mat.shader = LoadShader("assets/shaders/terrain_stylized.vs",
-                          "assets/shaders/terrain_stylized.fs");
-  mat.shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(mat.shader, "viewPos");
+  GenTextureMipmaps(&terr->grass_texture);
+  GenTextureMipmaps(&terr->rock_texture);
 
-  // The shader exposes named terrain layers, but they are still bound through
-  // the standard material map slots so DrawMesh uploads them automatically.
-  // ALBEDO is grass, NORMAL is rock/soil. Add another layer by giving it
-  // another unused material map slot and matching shader location.
-  mat.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(mat.shader, "grassMap");
-  mat.shader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(mat.shader, "rockMap");
+  Vector2 uv_scale = v2(0.02f, 0.02f);
+  Vector2 slope_range = v2(0.55f, 0.80f);
+  Vector3 grass_tint = { 1.0f, 1.0f, 1.0f };
+  Vector3 rock_tint = { 1.0f, 1.0f, 1.0f };
 
-  int lightCountLoc = GetShaderLocation(mat.shader, "numOfLights");
-  int maxLightCount = MAX_LIGHTS;
-  SetShaderValue(mat.shader, lightCountLoc, &maxLightCount, SHADER_UNIFORM_INT);
+  R3D_SetSurfaceShaderUniform(terr->terrain_shader, "uvScale", &uv_scale);
+  R3D_SetSurfaceShaderUniform(terr->terrain_shader, "slopeRange", &slope_range);
+  R3D_SetSurfaceShaderUniform(terr->terrain_shader, "grassTint", &grass_tint);
+  R3D_SetSurfaceShaderUniform(terr->terrain_shader, "rockTint", &rock_tint);
+  R3D_SetSurfaceShaderSampler(terr->terrain_shader, "grassMap", terr->grass_texture);
+  R3D_SetSurfaceShaderSampler(terr->terrain_shader, "rockMap", terr->rock_texture);
 
-  // Ambient light level
-  float ambientIntensity = 0.25f;
-  float ambientColor[3] = { 1.0f, 1.0f, 1.0f };
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "ambientColor"), ambientColor, SHADER_UNIFORM_VEC3);
-  SetShaderValue(mat.shader, GetShaderLocation(mat.shader, "ambientIntensity"), &ambientIntensity, SHADER_UNIFORM_FLOAT);
-
-  // Artist-tweakable terrain blend parameters. terrain_draw() sends the values.
-  locs->uv_scale_loc = GetShaderLocation(mat.shader, "uvScale");
-  locs->slope_range_loc = GetShaderLocation(mat.shader, "slopeRange");
-  locs->grass_tint_loc = GetShaderLocation(mat.shader, "grassTint");
-  locs->rock_tint_loc = GetShaderLocation(mat.shader, "rockTint");
-
-  // Texture2D grass = LoadTexture("assets/textures/Grass/Grass005_1K-PNG_Color.png");
-  Texture2D rock = LoadTexture("assets/textures/Ground1/Ground099_1K-PNG_Color.png");
-  Texture2D grass = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){68, 186, 0, 255}));
-  // Texture2D rock = LoadTextureFromImage(GenImageColor(1024, 1024, (Color){111, 56, 2, 255}));
-
-  GenTextureMipmaps(&grass);
-  GenTextureMipmaps(&rock);
-
-  SetTextureWrap(grass, TEXTURE_WRAP_REPEAT);
-  SetTextureWrap(rock, TEXTURE_WRAP_REPEAT);
-  SetTextureFilter(grass, TEXTURE_FILTER_ANISOTROPIC_4X);
-  SetTextureFilter(rock, TEXTURE_FILTER_ANISOTROPIC_4X);
-
-  mat.maps[MATERIAL_MAP_ALBEDO].texture = grass;
-  mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
-  mat.maps[MATERIAL_MAP_NORMAL].texture = rock;
-  mat.maps[MATERIAL_MAP_NORMAL].color = WHITE;
-
-  return mat;
+  terr->material = R3D_GetDefaultMaterial();
+  terr->material.shader = terr->terrain_shader;
+  terr->material.orm.roughness = 0.90f;
+  terr->material.orm.metalness = 0.0f;
+  terr->material.cullMode = R3D_CULL_BACK;
 }
 
 void terrain_init(Terrain *terr) {
@@ -380,35 +329,7 @@ void terrain_init(Terrain *terr) {
     }
   }
 
-  terr->wire_draw = false;
-  terr->locs = (MaterialLoc){ 0 };
-  terr->material = LoadTerrainMaterial(&terr->locs);
-  terr->dir_light = CreateLight(LIGHT_DIRECTIONAL, v3(1.f, 1.f, 1.f), Vector3Zero(), WHITE, 1.2f, terr->material.shader);
-
-
-
-  Image noise = GenImagePerlinNoise(512, 512, 0, 0, 4.0f);
-  terr->ocean_noise = LoadTextureFromImage(noise);
-  UnloadImage(noise);
-  SetTextureWrap(terr->ocean_noise, TEXTURE_WRAP_REPEAT);
-  SetTextureFilter(terr->ocean_noise, TEXTURE_FILTER_BILINEAR);
-
-  float sx = terr->nchunk.x * CHUNK_SPACE;
-  float sy = terr->nchunk.y * CHUNK_SPACE;
-  Mesh pl = GenMeshPlane(128.0f, 128.0f, 128, 128);
-  terr->ocean_model = LoadModelFromMesh(pl);
-
-  terr->ocean_shader = LoadShader("assets/shaders/ocean.vs", "assets/shaders/ocean.fs");
-  terr->ocean_model.materials[0].shader = terr->ocean_shader;
-  terr->ocean_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = terr->ocean_noise;
-
-  Vector3 light_dir = Vector3Normalize(Vector3Subtract(terr->dir_light.target, terr->dir_light.position));
-  float wave_height = 2.5f;
-  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uSunDir"), &light_dir, SHADER_UNIFORM_VEC3);
-  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uWaveHeight"), &wave_height, SHADER_UNIFORM_FLOAT);
-
-  terr->time_passed = 0.0f;
-
+  terrain_material_init(terr);
 }
 
 void terrain_clear(Terrain *terr) {
@@ -555,21 +476,6 @@ void terrain_generate(Terrain *terr, MapGraph *map, int seed, Vector3 inital_cam
 
 void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
-  // Update terrain material shader
-  int cp[3] = {cam_pos.x, cam_pos.y, cam_pos.z};
-  SetShaderValue(terr->material.shader, terr->material.shader.locs[SHADER_LOC_VECTOR_VIEW], cp, SHADER_UNIFORM_VEC3);
-  UpdateLightValues(terr->material.shader, terr->dir_light);
-
-  // Update ocean shader
-  terr->time_passed = GetTime();
-  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uTime"), &terr->time_passed, SHADER_UNIFORM_FLOAT);
-  SetShaderValue(terr->ocean_shader, GetShaderLocation(terr->ocean_shader, "uViewPos"), &cam_pos, SHADER_UNIFORM_VEC3);
-  
-
-  if (IsKeyPressed(KEY_COMMA)) {
-    terr->wire_draw = terr->wire_draw ? false : true;
-  }
-
   if (!terr->height_field.data)
     height_field_build(&terr->height_field, map);
 
@@ -582,42 +488,14 @@ void terrain_update(Terrain *terr, MapGraph *map, Vector3 cam_pos) {
 
 }
 
-void DrawOcean(Terrain *terr) {
-  // BeginShaderMode(terr->ocean_shader);
-    if (terr->wire_draw)
-      DrawModelWires(terr->ocean_model, Vector3One(), 10.0f, WHITE);
-    else
-      DrawModel(terr->ocean_model, Vector3One(), 10.0f, WHITE);
-  // EndShaderMode();
-}
-
 void terrain_draw(Terrain *terr) {
-
-  Shader shader = terr->material.shader;
-
-  // Stylized terrain blend parameters.
-  Vector2 uv_scale = v2(0.02f, 0.02f);
-  Vector2 slope_range = v2(0.55f, 0.80f);
-  Vector4 grass_tint = { 1.0f, 1.0f, 1.0f, 1.0f };
-  Vector4 rock_tint = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-  SetShaderValue(shader, terr->locs.uv_scale_loc, &uv_scale, SHADER_UNIFORM_VEC2);
-  SetShaderValue(shader, terr->locs.slope_range_loc, &slope_range, SHADER_UNIFORM_VEC2);
-  SetShaderValue(shader, terr->locs.grass_tint_loc, &grass_tint, SHADER_UNIFORM_VEC4);
-  SetShaderValue(shader, terr->locs.rock_tint_loc, &rock_tint, SHADER_UNIFORM_VEC4);
-  
-  DrawOcean(terr);
 
   for (int x = 0; x < terr->nchunk.x; x++) {
     for (int y = 0; y < terr->nchunk.y; y++) {
 
       TChunk *c = get_chunk(terr, x, y);
-      if (c->is_active && IsModelValid(c->model)) {
-        if (terr->wire_draw) {
-          DrawModelWires(c->model, c->position, 1.0f, WHITE);
-        } else {
-          DrawMesh(c->model.meshes[0], terr->material, MatrixTranslate(c->position.x, c->position.y, c->position.z));
-        }
+      if (c->is_active && R3D_IsMeshValid(c->mesh)) {
+        R3D_DrawMesh(c->mesh, terr->material, c->position, 1.0f);
       }
     }
   }
@@ -625,13 +503,6 @@ void terrain_draw(Terrain *terr) {
 }
 
 void terrain_free(Terrain *terr) {
-
-  UnloadMaterial(terr->material);
-  terr->material.maps = NULL;
-
-  UnloadShader(terr->ocean_shader);
-  UnloadModel(terr->ocean_model);
-  UnloadTexture(terr->ocean_noise);
 
   for (int i = 0; i < terr->nchunk.x; i++) {
     for (int j = 0; j < terr->nchunk.y; j++) {
@@ -644,6 +515,21 @@ void terrain_free(Terrain *terr) {
   free(terr->chunk); terr->chunk = NULL;
 
   height_field_free(&terr->height_field);
+
+  if (terr->terrain_shader) {
+    R3D_UnloadSurfaceShader(terr->terrain_shader);
+    terr->terrain_shader = NULL;
+  }
+
+  if (terr->grass_texture.id > 0) {
+    R3D_UnloadTexture(terr->grass_texture);
+    terr->grass_texture = (Texture2D){ 0 };
+  }
+
+  if (terr->rock_texture.id > 0) {
+    R3D_UnloadTexture(terr->rock_texture);
+    terr->rock_texture = (Texture2D){ 0 };
+  }
 
 }
 

@@ -3,12 +3,12 @@
 
 #include "height_field.h"
 #include "map_gen.h"
-#include "../include/rlights.h"
+#include "../include/r3d/r3d.h"
 #include <raylib.h>
 #include <pthread.h>
 
 #define LOD_GEOS   { 64, 32, 16, 8 }
-#define VIEW_DISTS { 1, 2, 3, 6 }
+#define VIEW_DISTS { 1, 2, 3, 12 }
 
 #define CHUNK_SPACE 128
 #define CHUNK_CUT_FALLOFF 10
@@ -35,7 +35,7 @@ typedef struct {
 
   Vector3 position;
   TGrid grid;
-  Model model;
+  R3D_Mesh mesh;
   bool is_active;
 
   int lod_level;
@@ -44,23 +44,12 @@ typedef struct {
 } TChunk;
 
 typedef struct {
-  int uv_scale_loc;
-  int slope_range_loc;
-  int grass_tint_loc;
-  int rock_tint_loc;
-} MaterialLoc;
 
-typedef struct {
+  R3D_Material material;
+  R3D_SurfaceShader *terrain_shader;
 
-  Material material;
-  MaterialLoc locs;
-  Light dir_light;
-
-  //Ocean
-  float time_passed;
-  Model ocean_model;
-  Shader ocean_shader;
-  Texture ocean_noise;
+  Texture2D grass_texture;
+  Texture2D rock_texture;
 
   THeightField height_field;
 
@@ -69,8 +58,6 @@ typedef struct {
   pthread_t gen_thread;
 
   Vector2 last_chunk;
-
-  bool wire_draw;
 
 } Terrain;
 

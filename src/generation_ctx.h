@@ -3,6 +3,7 @@
 
 #include "map_gen.h"
 #include "terrain.h"
+#include "../include/r3d/r3d.h"
 
 #define MAP_SIZE_X 4096 // Must be divided by CHUNK_SIZE
 #define MAP_SIZE_Y 4096 // Must be divided by CHUNK_SIZE
@@ -12,6 +13,8 @@ typedef struct {
 
   int screen_width;
   int screen_height;
+
+  R3D_Light dir_light;
 
   MapParams map_params;
 

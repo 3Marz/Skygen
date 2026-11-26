@@ -3,6 +3,7 @@
 #include "map_gen.h"
 #include "map_gen_height.h"
 #include "terrain.h"
+#include "../include/r3d/r3d.h"
 #include <raylib.h>
 #include <raymath.h>
 #include <limits.h>
@@ -56,6 +57,25 @@ void gen_ctx_init(GenerationCtx *ctx) {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
   InitWindow(ctx->screen_width, ctx->screen_height, "SKYGEN");
   SetTargetFPS(60);
+
+  // The terrain streams a lot of small chunk meshes; size the shared R3D
+  // buffers for the full LOD ring instead of letting them grow at runtime.
+  R3D_SetHint(R3D_HINT_MESH_VERTEX_BUFFER_CAPACITY, 131072);
+  R3D_SetHint(R3D_HINT_MESH_INDEX_BUFFER_CAPACITY, 655360);
+  R3D_SetHint(R3D_HINT_MESH_STREAMING_CAPACITY, 1024);
+
+  R3D_Init(ctx->screen_width, ctx->screen_height);
+
+  R3D_ENVIRONMENT_SET(ambient.color, (Color){ 150, 160, 180, 255 });
+  R3D_ENVIRONMENT_SET(ambient.energy, 1.0f);
+  R3D_ENVIRONMENT_SET(tonemap.exposure, 1.0f);
+
+  R3D_Cubemap sky = R3D_GenProceduralSky(1024, R3D_PROCEDURAL_SKY_BASE);
+  R3D_AmbientMap ambient = R3D_GenAmbientMap(sky, R3D_AMBIENT_ILLUMINATION | R3D_AMBIENT_REFLECTION);
+  R3D_ENVIRONMENT_SET(background.sky, sky);
+  R3D_ENVIRONMENT_SET(ambient.map, ambient);
+
+  ctx->dir_light = R3D_CreateDirLight((Vector3){-1,-1,-1}, WHITE, 4.0f);
 
   ctx->rand_seed = (unsigned int)time(NULL);
   // ctx->rand_seed = 666;
@@ -203,10 +223,10 @@ void gen_ctx_draw(GenerationCtx *ctx) {
     
   switch (ctx->draw_mode) {
     case MODE_3D:
-      BeginMode3D(ctx->camera);
-        // DrawGrid(100, CHUNK_SPACE);
+      R3D_Begin(ctx->camera);
+        R3D_PushLight(ctx->dir_light);
         terrain_draw(&ctx->terrain);
-      EndMode3D();
+      R3D_End();
       DrawFPS(10, 10);
       DrawText(TextFormat("camera speed: %.0f  ( [ / ] )", ctx->camera_speed), 10, 30, 20, RAYWHITE);
       break;
@@ -224,6 +244,8 @@ void gen_ctx_free(GenerationCtx *ctx) {
   ctx->map_params = (MapParams){ 0 };
   map_graph_free(ctx->map);
   terrain_free(&ctx->terrain);
+
+  R3D_Close();
 
 }
 
